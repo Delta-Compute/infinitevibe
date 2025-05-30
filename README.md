@@ -1,13 +1,12 @@
-# TensorFlix - Decentralized Video Content Validation
+# TensorFlix - Decentralized AI Video Production
 
-A blockchain-coordinated system where miners create video content for specific topics and validators score them based on performance metrics.
+A blockchain-coordinated system where miners create video content and validators score them based on their popular appeal.
 
 ## Overview
 
 TensorFlix implements a decentralized content creation and validation pipeline:
-- **Validators** create topic challenges (e.g., "educate about Bittensor")
-- **Miners** submit video content responding to these challenges
-- **Validation** occurs automatically based on normalized view metrics
+- **Miners** submit video content to the SN and post the content on social media, and eventually the TensorFlix website
+- **Validator**  score submissions by their engagement on the video traffic. Validators also: verify content is 100% AI generated, zero illicit content, traffic is real/not bots. 
 - **Coordination** happens through Bittensor blockchain and GitHub gists
 
 ## Architecture
