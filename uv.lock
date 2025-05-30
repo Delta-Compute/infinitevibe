@@ -108,6 +108,29 @@ wheels = [
 ]
 
 [[package]]
+name = "apify-client"
+version = "1.10.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "apify-shared" },
+    { name = "httpx" },
+    { name = "more-itertools" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c8/e5/88583af493739cc8624a41a3346b26c03851130d5c0c4e7c554cf591e5ca/apify_client-1.10.0.tar.gz", hash = "sha256:be846c466e898f838edffecff7ef07de99a184498bea0245b5709b4fa732415d", size = 340789 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/76/91/c92aba86e2cd57529b1916cdc452b3955adc3ddc5f29a5d380ef4f1feec8/apify_client-1.10.0-py3-none-any.whl", hash = "sha256:213c515f7dbcbf966351c31e47331e9895b0e9f3aee8ca62473c902431ec37af", size = 77659 },
+]
+
+[[package]]
+name = "apify-shared"
+version = "1.4.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b2/a6/c8e2fa0b3bdc479d3ecde778e2381af199f910cf7c8baa3c207bcfe26e47/apify_shared-1.4.1.tar.gz", hash = "sha256:16e617c840fd27bf38d980f079c0b867c7378f68c7006b3d5a7d530d43930507", size = 13871 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1d/f3/3446c8a7986fdc087024d4e174e4b3f587097a9b28f6f8e8c788199225b2/apify_shared-1.4.1-py3-none-any.whl", hash = "sha256:abac5712b6e8eb96693204cbb2702905e1971d9084b1716e7337852b5005290e", size = 12706 },
+]
+
+[[package]]
 name = "async-property"
 version = "0.2.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1458,6 +1481,7 @@ name = "tensorflix"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "apify-client" },
     { name = "async-substrate-interface" },
     { name = "bittensor-cli" },
     { name = "bittensor-wallet" },
@@ -1470,6 +1494,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "apify-client", specifier = ">=1.10.0" },
     { name = "async-substrate-interface", specifier = ">=1.2.2" },
     { name = "bittensor-cli", specifier = ">=9.4.2" },
     { name = "bittensor-wallet", specifier = ">=3.0.10" },

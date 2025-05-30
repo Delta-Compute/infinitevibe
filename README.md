@@ -1,142 +1,286 @@
-# TensorFlix MVP Pipeline
+# TensorFlix - Decentralized Video Content Validation
 
-A simple pipeline where miners submit YouTube videos and validators check them using blockchain coordination.
+A blockchain-coordinated system where miners create video content for specific topics and validators score them based on performance metrics.
 
-## What it does
+## Overview
 
-- **Miners**: Submit YouTube video IDs for tasks
-- **Validators**: Create tasks and validate submissions
-- **Services**: Track blockchain data and fetch video info
+TensorFlix implements a decentralized content creation and validation pipeline:
+- **Validators** create topic challenges (e.g., "educate about Bittensor")
+- **Miners** submit video content responding to these challenges
+- **Validation** occurs automatically based on normalized view metrics
+- **Coordination** happens through Bittensor blockchain and GitHub gists
 
-## Setup
+## Architecture
 
-### Install dependencies
-```bash
-pip install -r requirements.txt
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│   Miners    │────▶│  Blockchain  │◀────│ Validators  │
+└─────────────┘     └──────────────┘     └─────────────┘
+       │                    │                     │
+       ▼                    ▼                     ▼
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│ Submission  │     │Chain Syncer  │     │Task Gists   │
+│   Gists     │     │   Service    │     │             │
+└─────────────┘     └──────────────┘     └─────────────┘
+                            │
+                            ▼
+                    ┌──────────────┐
+                    │  Platform    │
+                    │  Tracker     │
+                    └──────────────┘
 ```
 
-### Set environment variables
+## Quick Start
+
+### Prerequisites
+
+1. Install dependencies:
 ```bash
-export YOUTUBE_API_KEY="your_api_key"
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+uv venv
+uv sync
+source .venv/bin/activate
+```
+
+2. Set environment variables:
+```bash
+export YOUTUBE_API_KEY="your_youtube_api_key"
+export APIFY_API_KEY="your_apify_api_key"  # For Instagram
 export NETUID=89
 export SUBTENSOR_NETWORK="mainnet"
 ```
 
-## Running the system
+### Start Core Services
 
-### 1. Start services
-
-Start chain syncer (tracks blockchain):
+1. **Chain Syncer** (tracks blockchain commits):
 ```bash
 uvicorn tensorflix.services.chain_syncer.app:app --port 8001
 ```
 
-Start platform tracker (gets YouTube data):
+2. **Platform Tracker** (fetches video/reel metrics):
 ```bash
 uvicorn tensorflix.services.platform_tracker.app:app --port 8000
 ```
 
-### 2. For Miners
+## For Validators
 
-Create a GitHub gist with your submissions:
+### 1. Create Task Challenges
+
+Create a GitHub gist with your tasks (one JSON per line):
 ```json
-{
-  "submissions": [
-    ["task1", "youtube_video_id1"],
-    ["task2", "youtube_video_id2"]
-  ]
-}
+{"task-id-1": {"description": "educate everyone about bittensor", "platform": "youtube", "start_at": "2025-01-25T12:00:00Z"}}
+{"task-id-2": {"description": "create engaging AI tutorials", "platform": "youtube", "start_at": "2025-01-26T00:00:00Z"}}
+{"task-id-3": {"description": "showcase Bittensor ecosystem", "platform": "instagram", "start_at": "2025-01-27T00:00:00Z"}}
 ```
 
-Example: https://gist.github.com/toilaluan/671296b3465daf4fcafafcb438f67f64
+### 2. Commit to Blockchain
 
-Commit your gist to blockchain:
-```bash
-python scripts/do_commit.py \
-  --netuid 89 \
-  --wallet-name your_wallet \
-  --wallet-hotkey your_hotkey \
-  --commit "your_username:your_gist_id" \
-  --network mainnet
-```
-
-### 3. For Validators
-
-Create a GitHub gist with tasks:
-```json
-{
-  "task1": {
-    "description": "educate about bittensor",
-    "platform": "youtube"
-  },
-  "task2": {
-    "description": "educate about bitcoin", 
-    "platform": "youtube"
-  }
-}
-
-Example: https://gist.github.com/toilaluan/cdc3b8166f8f6bc5dd8f70fd84d343c7
-```
-
-Commit your task gist:
 ```bash
 python scripts/do_commit.py \
   --netuid 89 \
   --wallet-name validator_wallet \
   --wallet-hotkey validator_hotkey \
-  --commit "validator_username:task_gist_id" \
+  --commit "your_github_username:your_gist_id" \
   --network mainnet
 ```
 
-Run the validator:
+### 3. Run Validation Loop
+
 ```bash
-python scripts/validator/run.py
+python scripts/validator/run.py \
+  --validator-gist-id your_gist_id \
+  --validator-username your_github_username \
+  --update-interval 24  # hours
 ```
 
-Example logs: [logs.txt](task_processor.log)
+The validator will:
+- Fetch all miner submissions every 24 hours
+- Update video/reel metrics
+- Validate content (uniqueness, publish time)
+- Calculate normalized scores based on views/hour
+- Log top performers for each task
 
-## How it works
+## For Miners
 
-1. Validators post tasks in a gist and commit the gist ID to blockchain
-2. Miners see tasks and submit video IDs in their own gist
-3. Miners commit their gist ID to blockchain
-4. Validator script reads all submissions and validates them
-5. Video data is fetched from YouTube API for validation
+### 1. View Available Tasks
 
-## API endpoints
+Check validator gists to see current challenges and their requirements.
 
-Chain syncer (port 8001):
-- `GET /get_all_peers_metadata` - Get all miner submissions
-- `GET /health` - Check if service is running
+### 2. Create Content
 
-Platform tracker (port 8000):
-- `GET /youtube/video/{video_id}` - Get video details
-- `GET /health` - Check if service is running
+Produce videos/reels that match the task description. Content must be published **after** the task's `start_at` timestamp.
 
-## File formats
+### 3. Submit Your Work
 
-Miner gist format:
+Create a GitHub gist with your submissions:
 ```json
 {
   "submissions": [
-    ["task_id", "video_id"]
+    ["task-id-1", "dQw4w9WgXcQ"],
+    ["task-id-2", "jNQXAC9IVRw"],
+    ["task-id-3", "ABC123defGHI"]
   ]
 }
 ```
 
-Validator gist format:
+Where:
+- First element: Task ID from validator's gist
+- Second element: Content ID (YouTube video ID or Instagram reel ID)
+
+### 4. Commit to Blockchain
+
+```bash
+python scripts/do_commit.py \
+  --netuid 89 \
+  --wallet-name miner_wallet \
+  --wallet-hotkey miner_hotkey \
+  --commit "your_github_username:your_gist_id" \
+  --network mainnet
+```
+
+## Validation Rules
+
+### 1. **Uniqueness Check**
+- Each content ID can only be submitted once per task
+- First submission (by timestamp) gets credit
+
+### 2. **Timestamp Validation**
+- Content must be published after task's `start_at` time
+- Pre-existing content is rejected
+
+### 3. **Scoring Algorithm**
+```python
+score = view_count / hours_since_publish
+normalized_score = score / max_score_in_task
+```
+
+Scores are normalized to [0, 1] range within each task.
+
+## API Reference
+
+### Chain Syncer (Port 8001)
+
+**GET** `/get_all_peers_metadata`
+- Returns all peer commits and metadata
+- Used by validator to discover miner submissions
+
+**GET** `/health`
+- Service health check
+
+### Platform Tracker (Port 8000)
+
+**GET** `/youtube/video/{video_id}`
+- Returns YouTube video metrics
+- Response includes: view_count, like_count, comment_count, published_at
+
+**GET** `/instagram/reel/{reel_id}`
+- Returns Instagram reel metrics
+- Response includes: video_view_count, like_count, comment_count, timestamp
+
+## Data Formats
+
+### Task Format (Validator Gist)
 ```json
 {
-  "task_id": {
-    "description": "What you want",
-    "criteria": "How to judge it"
+  "unique-task-id": {
+    "description": "Clear description of what content should achieve",
+    "platform": "youtube|instagram",
+    "start_at": "2025-01-25T12:00:00Z"
   }
 }
 ```
 
+### Submission Format (Miner Gist)
+```json
+{
+  "submissions": [
+    ["task-id", "content-id"],
+    ["task-id", "content-id"]
+  ]
+}
+```
+
+### Blockchain Commit Format
+```
+username:gist_id
+```
+
+## Monitoring & Logs
+
+The validator creates detailed logs:
+- `video_topic_validator.log` - Full validation details
+- Console output shows:
+  - Update cycle progress
+  - Task and submission counts
+  - Top performers per task
+  - Validation failures
+
+## Best Practices
+
+### For Validators
+- Create clear, specific task descriptions
+- Set reasonable start times (allow miners time to see tasks)
+- Run validator continuously for consistent scoring
+- Monitor logs for system health
+
+### For Miners
+- Check tasks frequently for new opportunities
+- Create high-quality, engaging content
+- Submit promptly after publishing
+- Ensure content matches task requirements
+
 ## Troubleshooting
 
-- Make sure both services are running on ports 8000 and 8001
-- Check your YouTube API key is valid
-- Make sure gists are public
-- Check wallet has funds for blockchain transactions
+### Common Issues
+
+1. **"No video data found"**
+   - Check content ID is correct
+   - Ensure content is public
+   - Verify API keys are valid
+
+2. **"Published before task start"**
+   - Content must be created after task announcement
+   - Check task's `start_at` timestamp
+
+3. **"Duplicate submission"**
+   - Each content ID can only be used once per task
+   - Create unique content for each submission
+
+4. **Services not responding**
+   - Ensure chain syncer is running on port 8001
+   - Ensure platform tracker is running on port 8000
+   - Check firewall settings
+
+### Debug Commands
+
+Check service health:
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8001/health
+```
+
+Test video data fetch:
+```bash
+curl http://localhost:8000/youtube/video/VIDEO_ID
+```
+
+View all peer metadata:
+```bash
+curl http://localhost:8001/get_all_peers_metadata | jq
+```
+
+## Security Considerations
+
+- Keep wallet keys secure
+- Use public gists only (private gists won't work)
+- Don't share API keys
+- Monitor for suspicious submissions
+
+## Support
+
+For issues or questions:
+- Check logs for detailed error messages
+- Ensure all services are running
+- Verify gist formats match examples
+- Confirm blockchain transactions succeeded

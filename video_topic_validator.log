@@ -1,0 +1,98 @@
+2025-05-31 00:09:47,271 - __main__ - INFO - Starting video topic validator
+2025-05-31 00:09:47,271 - __main__ - INFO - Validator commit: toilaluan/cdc3b8166f8f6bc5dd8f70fd84d343c7
+2025-05-31 00:09:47,271 - __main__ - INFO - Update interval: 1 day, 0:00:00
+2025-05-31 00:09:47,271 - __main__ - INFO - Starting update cycle
+2025-05-31 00:09:47,814 - httpx - INFO - HTTP Request: GET https://gist.githubusercontent.com/toilaluan/cdc3b8166f8f6bc5dd8f70fd84d343c7/raw "HTTP/1.1 200 OK"
+2025-05-31 00:09:47,816 - __main__ - ERROR - Error fetching tasks: Unterminated string starting at: line 1 column 102 (char 101)
+2025-05-31 00:09:47,848 - httpx - INFO - HTTP Request: GET http://localhost:8001/get_all_peers_metadata "HTTP/1.1 200 OK"
+2025-05-31 00:09:47,848 - __main__ - INFO - Fetched submissions from 0 miners
+2025-05-31 00:09:47,848 - __main__ - INFO - Update cycle complete:
+2025-05-31 00:09:47,848 - __main__ - INFO -   - Tasks: 0
+2025-05-31 00:09:47,848 - __main__ - INFO -   - Total submissions: 0
+2025-05-31 00:09:47,848 - __main__ - INFO -   - Metrics cached: 0
+2025-05-31 00:09:47,848 - __main__ - INFO -   - Scores calculated: 0
+2025-05-31 00:09:47,848 - __main__ - INFO - Sleeping for 86400.0 seconds
+2025-05-31 00:10:40,799 - __main__ - INFO - Starting video topic validator
+2025-05-31 00:10:40,799 - __main__ - INFO - Validator commit: toilaluan/cdc3b8166f8f6bc5dd8f70fd84d343c7
+2025-05-31 00:10:40,799 - __main__ - INFO - Update interval: 1 day, 0:00:00
+2025-05-31 00:10:40,799 - __main__ - INFO - Starting update cycle
+2025-05-31 00:10:41,324 - httpx - INFO - HTTP Request: GET https://gist.githubusercontent.com/toilaluan/cdc3b8166f8f6bc5dd8f70fd84d343c7/raw "HTTP/1.1 200 OK"
+2025-05-31 00:10:41,326 - __main__ - ERROR - Error fetching tasks: Unterminated string starting at: line 1 column 102 (char 101)
+2025-05-31 00:10:41,365 - httpx - INFO - HTTP Request: GET http://localhost:8001/get_all_peers_metadata "HTTP/1.1 200 OK"
+2025-05-31 00:10:41,365 - __main__ - INFO - Fetched submissions from 0 miners
+2025-05-31 00:10:41,365 - __main__ - INFO - Update cycle complete:
+2025-05-31 00:10:41,366 - __main__ - INFO -   - Tasks: 0
+2025-05-31 00:10:41,366 - __main__ - INFO -   - Total submissions: 0
+2025-05-31 00:10:41,366 - __main__ - INFO -   - Metrics cached: 0
+2025-05-31 00:10:41,366 - __main__ - INFO -   - Scores calculated: 0
+2025-05-31 00:10:41,366 - __main__ - INFO - Sleeping for 86400.0 seconds
+2025-05-31 00:11:09,881 - __main__ - INFO - Starting video topic validator
+2025-05-31 00:11:09,881 - __main__ - INFO - Validator commit: toilaluan/cdc3b8166f8f6bc5dd8f70fd84d343c7
+2025-05-31 00:11:09,881 - __main__ - INFO - Update interval: 1 day, 0:00:00
+2025-05-31 00:11:09,881 - __main__ - INFO - Starting update cycle
+2025-05-31 00:11:10,173 - httpx - INFO - HTTP Request: GET https://gist.githubusercontent.com/toilaluan/cdc3b8166f8f6bc5dd8f70fd84d343c7/raw "HTTP/1.1 200 OK"
+2025-05-31 00:11:10,176 - __main__ - ERROR - Error fetching tasks: Unterminated string starting at: line 1 column 102 (char 101)
+2025-05-31 00:11:10,209 - httpx - INFO - HTTP Request: GET http://localhost:8001/get_all_peers_metadata "HTTP/1.1 200 OK"
+2025-05-31 00:11:10,209 - __main__ - INFO - Fetched submissions from 0 miners
+2025-05-31 00:11:10,209 - __main__ - INFO - Update cycle complete:
+2025-05-31 00:11:10,209 - __main__ - INFO -   - Tasks: 0
+2025-05-31 00:11:10,209 - __main__ - INFO -   - Total submissions: 0
+2025-05-31 00:11:10,209 - __main__ - INFO -   - Metrics cached: 0
+2025-05-31 00:11:10,210 - __main__ - INFO -   - Scores calculated: 0
+2025-05-31 00:11:10,210 - __main__ - INFO - Sleeping for 86400.0 seconds
+2025-05-31 00:12:01,156 - __main__ - INFO - Starting video topic validator
+2025-05-31 00:12:01,156 - __main__ - INFO - Validator commit: toilaluan/cdc3b8166f8f6bc5dd8f70fd84d343c7
+2025-05-31 00:12:01,156 - __main__ - INFO - Update interval: 1 day, 0:00:00
+2025-05-31 00:12:01,156 - __main__ - INFO - Starting update cycle
+2025-05-31 00:12:01,297 - httpx - INFO - HTTP Request: GET https://gist.githubusercontent.com/toilaluan/cdc3b8166f8f6bc5dd8f70fd84d343c7/raw "HTTP/1.1 200 OK"
+2025-05-31 00:12:01,298 - __main__ - ERROR - Error fetching tasks: Unterminated string starting at: line 1 column 102 (char 101)
+2025-05-31 00:12:01,319 - httpx - INFO - HTTP Request: GET http://localhost:8001/get_all_peers_metadata "HTTP/1.1 200 OK"
+2025-05-31 00:12:01,320 - __main__ - INFO - Fetched submissions from 0 miners
+2025-05-31 00:12:01,320 - __main__ - INFO - Update cycle complete:
+2025-05-31 00:12:01,320 - __main__ - INFO -   - Tasks: 0
+2025-05-31 00:12:01,320 - __main__ - INFO -   - Total submissions: 0
+2025-05-31 00:12:01,320 - __main__ - INFO -   - Metrics cached: 0
+2025-05-31 00:12:01,320 - __main__ - INFO -   - Scores calculated: 0
+2025-05-31 00:12:01,320 - __main__ - INFO - Sleeping for 86400.0 seconds
+2025-05-31 00:13:43,613 - __main__ - INFO - Starting video topic validator
+2025-05-31 00:13:43,613 - __main__ - INFO - Validator commit: toilaluan/cdc3b8166f8f6bc5dd8f70fd84d343c7
+2025-05-31 00:13:43,613 - __main__ - INFO - Update interval: 1 day, 0:00:00
+2025-05-31 00:13:43,613 - __main__ - INFO - Starting update cycle
+2025-05-31 00:13:43,905 - httpx - INFO - HTTP Request: GET https://gist.githubusercontent.com/toilaluan/cdc3b8166f8f6bc5dd8f70fd84d343c7/raw "HTTP/1.1 200 OK"
+2025-05-31 00:13:43,907 - __main__ - ERROR - Error fetching tasks: Unterminated string starting at: line 1 column 102 (char 101)
+2025-05-31 00:13:43,948 - httpx - INFO - HTTP Request: GET http://localhost:8001/get_all_peers_metadata "HTTP/1.1 200 OK"
+2025-05-31 00:13:43,949 - __main__ - INFO - Fetched submissions from 0 miners
+2025-05-31 00:13:43,949 - __main__ - INFO - Update cycle complete:
+2025-05-31 00:13:43,949 - __main__ - INFO -   - Tasks: 0
+2025-05-31 00:13:43,949 - __main__ - INFO -   - Total submissions: 0
+2025-05-31 00:13:43,949 - __main__ - INFO -   - Metrics cached: 0
+2025-05-31 00:13:43,949 - __main__ - INFO -   - Scores calculated: 0
+2025-05-31 00:13:43,949 - __main__ - INFO - Sleeping for 86400.0 seconds
+2025-05-31 00:14:05,291 - __main__ - INFO - Starting video topic validator
+2025-05-31 00:14:05,291 - __main__ - INFO - Validator commit: toilaluan/cdc3b8166f8f6bc5dd8f70fd84d343c7
+2025-05-31 00:14:05,291 - __main__ - INFO - Update interval: 1 day, 0:00:00
+2025-05-31 00:14:05,291 - __main__ - INFO - Starting update cycle
+2025-05-31 00:14:05,801 - httpx - INFO - HTTP Request: GET https://gist.githubusercontent.com/toilaluan/cdc3b8166f8f6bc5dd8f70fd84d343c7/raw/?t=1748625245.2913642 "HTTP/1.1 200 OK"
+2025-05-31 00:14:05,803 - __main__ - INFO - Fetched 2 tasks
+2025-05-31 00:14:05,834 - httpx - INFO - HTTP Request: GET http://localhost:8001/get_all_peers_metadata "HTTP/1.1 200 OK"
+2025-05-31 00:14:05,834 - __main__ - INFO - Fetched submissions from 0 miners
+2025-05-31 00:14:05,834 - __main__ - INFO - Update cycle complete:
+2025-05-31 00:14:05,834 - __main__ - INFO -   - Tasks: 2
+2025-05-31 00:14:05,834 - __main__ - INFO -   - Total submissions: 0
+2025-05-31 00:14:05,834 - __main__ - INFO -   - Metrics cached: 0
+2025-05-31 00:14:05,834 - __main__ - INFO -   - Scores calculated: 0
+2025-05-31 00:14:05,834 - __main__ - INFO - Sleeping for 86400.0 seconds
+2025-05-31 00:14:43,081 - __main__ - INFO - Starting video topic validator
+2025-05-31 00:14:43,081 - __main__ - INFO - Validator commit: toilaluan/cdc3b8166f8f6bc5dd8f70fd84d343c7
+2025-05-31 00:14:43,081 - __main__ - INFO - Update interval: 1 day, 0:00:00
+2025-05-31 00:14:43,081 - __main__ - INFO - Starting update cycle
+2025-05-31 00:14:43,610 - httpx - INFO - HTTP Request: GET https://gist.githubusercontent.com/toilaluan/cdc3b8166f8f6bc5dd8f70fd84d343c7/raw/?t=1748625283.081474 "HTTP/1.1 200 OK"
+2025-05-31 00:14:43,612 - __main__ - INFO - Fetched 2 tasks
+2025-05-31 00:14:43,645 - httpx - INFO - HTTP Request: GET http://localhost:8001/get_all_peers_metadata "HTTP/1.1 200 OK"
+2025-05-31 00:14:43,645 - __main__ - INFO - Fetched submissions from 0 miners
+2025-05-31 00:14:43,645 - __main__ - INFO - Update cycle complete:
+2025-05-31 00:14:43,645 - __main__ - INFO -   - Tasks: 2
+2025-05-31 00:14:43,645 - __main__ - INFO -   - Total submissions: 0
+2025-05-31 00:14:43,645 - __main__ - INFO -   - Metrics cached: 0
+2025-05-31 00:14:43,646 - __main__ - INFO -   - Scores calculated: 0
+2025-05-31 00:14:43,646 - __main__ - INFO - Sleeping for 86400.0 seconds

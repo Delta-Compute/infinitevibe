@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "apify-client>=1.10.0",
     "async-substrate-interface>=1.2.2",
     "bittensor-cli>=9.4.2",
     "bittensor-wallet>=3.0.10",
