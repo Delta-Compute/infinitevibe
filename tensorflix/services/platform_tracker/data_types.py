@@ -42,14 +42,17 @@ class InstagramPostMetadata(BaseModel):
         """Convert to response dict without alias keys."""
         return self.model_dump(exclude_none=True, by_alias=False)
 
+    def to_scalar(self) -> float:
+        return (self.comment_count + self.like_count + self.video_view_count) / 3
+
 
 class InstagramPostMetadataRequest(BaseModel):
-    reel_id: str
+    content_id: str
 
     def get_apify_payload(self) -> dict:
         return {
             "addParentData": False,
-            "directUrls": [f"https://www.instagram.com/reel/{self.reel_id}"],
+            "directUrls": [f"https://www.instagram.com/reel/{self.content_id}"],
             "enhanceUserSearchWithFacebookPage": False,
             "isUserReelFeedURL": False,
             "isUserTaggedFeedURL": False,
@@ -70,9 +73,7 @@ class YoutubeVideoMetadata(BaseModel):
     view_count: int
     like_count: int
     comment_count: int
-    tags: Optional[list[str]] = (
-        None  # Make optional since some videos might not have tags
-    )
+    tags: Optional[list[str]] = None
 
     @classmethod
     def from_response(cls, response: dict) -> "YoutubeVideoMetadata":
@@ -106,21 +107,12 @@ class YoutubeVideoMetadata(BaseModel):
         """Convert to response dict."""
         return self.model_dump(exclude_none=True)
 
+    def to_scalar(self) -> float:
+        return (self.view_count + self.like_count + self.comment_count) / 3
+
 
 class YoutubeVideoMetadataRequest(BaseModel):
-    video_id: str
+    content_id: str
 
     def get_request_url(self, api_key: str) -> str:
-        return f"https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id={self.video_id}&key={api_key}"
-
-
-if __name__ == "__main__":
-    import requests
-    import os
-
-    api_key = os.getenv("YOUTUBE_API_KEY")
-    request = YoutubeVideoMetadataRequest(video_id="4Y4YSpF6d6w")
-    url = request.get_request_url(api_key)
-    response = requests.get(url)
-    metadata = YoutubeVideoMetadata.from_response(response.json())
-    print(metadata)
+        return f"https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id={self.content_id}&key={api_key}"

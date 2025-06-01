@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "tensorflix"
 version = "0.1.0"
@@ -7,11 +11,20 @@ requires-python = ">=3.11"
 dependencies = [
     "apify-client>=1.10.0",
     "async-substrate-interface>=1.2.2",
+    "bittensor>=9.7.0",
     "bittensor-cli>=9.4.2",
     "bittensor-wallet>=3.0.10",
-    "fastapi>=0.115.12",
     "httpx>=0.28.1",
     "loguru>=0.7.3",
+    "motor>=3.7.1",
+    "pydantic-settings>=2.9.1",
+    "rich>=14.0.0",
     "tqdm>=4.67.1",
-    "uvicorn>=0.34.2",
 ]
+
+
+[tool.hatch.build.targets.wheel]
+packages = ["tensorflix"]
+
+[project.scripts]
+tensorflix-submission = "tensorflix.submission.manage_submission:app"
