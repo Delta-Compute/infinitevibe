@@ -52,7 +52,7 @@ class TensorFlixValidator:
             hk: int(uid) for hk, uid in zip(metagraph.hotkeys, metagraph.uids)
         }
 
-        db = db_client[CONFIG.mongodb_uri]
+        db = db_client["tensorflix"]
         self._submissions: AsyncIOMotorCollection = db["submissions"]
         self._performances: AsyncIOMotorCollection = db["performances"]
 
@@ -64,19 +64,18 @@ class TensorFlixValidator:
 
     # ─────────────────── Submissions ─────────────
     async def _peer_metadata(self) -> list[PeerMetadata]:
-        logger.info("chain_fetch_peer_commitments")
-        commitments = await self.subtensor.get_all_commitments()
+        logger.info(f"chain_fetch_peer_commitments, netuid: {self.netuid}")
+        commitments = await self.subtensor.get_all_commitments(netuid=self.netuid)
         peers = [
             PeerMetadata(
                 uid=self._uid_of_hotkey[hk],
-                participant_id="",
                 hotkey=hk,
                 commit=commit,
             )
             for hk, commit in commitments.items()
             if hk in self._uid_of_hotkey
         ]
-        logger.info("commitments_fetched", extra={"count": len(peers)})
+        logger.info(f"commitments_fetched, peers-sample: {[p for p in peers[:5] if len(p.submissions) > 0]}")
         return peers
 
     async def _refresh_peer_submissions(self, peer: PeerMetadata) -> None:

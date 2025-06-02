@@ -11,7 +11,9 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 from tensorflix.config import CONFIG
 from tensorflix.validator import TensorFlixValidator
+from dotenv import load_dotenv
 
+load_dotenv()
 
 async def _bootstrap() -> None:
     parser = argparse.ArgumentParser(description="TensorFlix validator")

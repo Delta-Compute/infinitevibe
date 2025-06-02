@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings
 
 class Config(BaseSettings):
     # ─────────────────── General ────────────────────
+    netuid: int = 89
     allowed_platforms: tuple[str, ...] = (
         "youtube/video",
         "instagram/reel",
@@ -31,12 +32,11 @@ class Config(BaseSettings):
             "finney": "wss://entrypoint-finney.opentensor.ai:443",
             "testnet": "wss://test.finney.opentensor.ai:443",
         }[self.subtensor_network]
+    
+    def get_signature_post(self, hotkey: str) -> str:
+        return f"@tensorflix-bittensor {hotkey[-5:]}"
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
 
-
-CONFIG = Config(_env_file=Path(".env"), _env_file_encoding="utf-8")
+CONFIG = Config()
 
 print(CONFIG)

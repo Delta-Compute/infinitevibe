@@ -55,7 +55,6 @@ class Submission(BaseModel):
 
 class PeerMetadata(BaseModel):
     uid: int
-    participant_id: str
     hotkey: str
     commit: str
     submissions: list[Submission] = Field(default_factory=list)
@@ -73,33 +72,40 @@ class PeerMetadata(BaseModel):
         return v
 
     async def update_submissions(self) -> None:
-        username, gist_id = self.commit.split(":", 1)
-        url = f"https://gist.githubusercontent.com/{username}/{gist_id}/raw"
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(url)
-            r.raise_for_status()
+        try:
+            username, gist_id = self.commit.split(":", 1)
+            url = f"https://gist.githubusercontent.com/{username}/{gist_id}/raw"
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.get(url)
+                r.raise_for_status()
 
-        new_subs: list[Submission] = []
-        for line in r.text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                sub = Submission.model_validate_json(line)
-            except Exception as exc:
-                logger.warning(
-                    "submission_parse_error",
-                    exc_info=exc,
-                    extra={"uid": self.uid, "raw": line},
-                )
-                continue
-            if sub.platform not in CONFIG.allowed_platforms:
-                logger.trace("submission_platform_ignored", extra=sub.model_dump())
-                continue
-            new_subs.append(sub)
+            new_subs: list[Submission] = []
+            for line in r.text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    sub = Submission.model_validate_json(line)
+                except Exception as exc:
+                    logger.warning(
+                        "submission_parse_error",
+                        exc_info=exc,
+                        extra={"uid": self.uid, "raw": line},
+                    )
+                    continue
+                if sub.platform not in CONFIG.allowed_platforms:
+                    logger.trace("submission_platform_ignored", extra=sub.model_dump())
+                    continue
+                new_subs.append(sub)
 
-        self.submissions = new_subs
-        logger.debug(
-            "peer_submissions_refreshed",
-            extra={"uid": self.uid, "count": len(self.submissions)},
-        )
+            self.submissions = new_subs
+            logger.debug(
+                f"peer_submissions_refreshed: {self.uid} {len(self.submissions)}, sample: {self.submissions[:3]}"
+            )
+        except Exception as exc:
+            logger.warning(
+                "peer_submissions_refresh_error",
+                exc_info=exc,
+                extra={"uid": self.uid},
+            )
+            self.submissions = []
