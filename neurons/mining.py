@@ -4,6 +4,11 @@ import streamlit as st
 from loguru import logger
 from pydantic import BaseModel, ValidationError
 from typing import Literal, List
+import boto3
+from botocore.exceptions import ClientError, NoCredentialsError
+import uuid
+import tempfile
+import os
 
 # --------------------------------------------------------------------------------------
 # Data model
@@ -89,6 +94,58 @@ def save_submissions(
 
 
 # --------------------------------------------------------------------------------------
+# R2 Upload helpers
+# --------------------------------------------------------------------------------------
+
+def upload_video_to_r2(
+    video_file, 
+    r2_endpoint: str, 
+    access_key: str, 
+    secret_key: str, 
+    bucket_name: str,
+    bucket_id: str,
+    public_domain: str = None
+) -> str:
+    """Upload video file to R2 bucket and return the direct URL."""
+    
+    try:
+        # Create S3 client for R2
+        s3_client = boto3.client(
+            's3',
+            endpoint_url=r2_endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name='auto'  # R2 uses 'auto' region
+        )
+        
+        # Generate unique filename
+        file_extension = os.path.splitext(video_file.name)[1]
+        unique_filename = f"videos/{uuid.uuid4()}{file_extension}"
+        
+        # Upload file
+        s3_client.upload_fileobj(
+            video_file,
+            bucket_name,
+            unique_filename,
+            ExtraArgs={'ContentType': 'video/mp4'}
+        )
+        
+        public_url = f"https://pub-{BUCKET_ID}.r2.dev/{unique_filename}"
+        
+        print(f"✅ Upload successful!")
+        print(f"🔗 Public sharing link: {public_url}")
+        
+        return public_url
+        
+    except NoCredentialsError:
+        raise RuntimeError("R2 credentials not provided or invalid")
+    except ClientError as e:
+        raise RuntimeError(f"R2 upload failed: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Upload error: {e}")
+
+
+# --------------------------------------------------------------------------------------
 # Streamlit UI
 # --------------------------------------------------------------------------------------
 
@@ -106,11 +163,23 @@ def main():
         gist_id = st.text_input("Gist ID")
         file_name = st.text_input("File name", value="submissions.jsonl")
 
+        st.divider()
+        
+        st.header("R2 Storage settings")
+        r2_endpoint = st.text_input("R2 Endpoint URL", placeholder="https://your-account-id.r2.cloudflarestorage.com")
+        r2_access_key = st.text_input("R2 Access Key", type="password")
+        r2_secret_key = st.text_input("R2 Secret Key", type="password")
+        r2_bucket = st.text_input("R2 Bucket Name")
+        r2_public_domain = st.text_input("Public Domain (optional)", placeholder="your-domain.com")
+
         if st.button("🔄 Load / refresh", disabled=not (api_key and gist_id)):
             try:
-                st.session_state["subs"] = load_submissions(api_key, gist_id, file_name)
+                st.session_state["subs"] = load_submissions(api_key, gist_id, file_name)    
                 st.session_state.update(
-                    api_key=api_key, gist_id=gist_id, file_name=file_name
+                    api_key=api_key, gist_id=gist_id, file_name=file_name,
+                    r2_endpoint=r2_endpoint, r2_access_key=r2_access_key,
+                    r2_secret_key=r2_secret_key, r2_bucket=r2_bucket,
+                    r2_public_domain=r2_public_domain
                 )
                 st.success("Submissions loaded.")
             except Exception as exc:
@@ -153,26 +222,87 @@ def main():
     # ---------------- Add / update entry ----------------
     st.subheader("Add or update a submission")
 
+    # Check if R2 settings are configured
+    r2_configured = all([
+        st.session_state.get("r2_endpoint"),
+        st.session_state.get("r2_access_key"),
+        st.session_state.get("r2_secret_key"),
+        st.session_state.get("r2_bucket")
+    ])
+
+    if not r2_configured:
+        st.warning("⚠️ Please configure R2 storage settings in the sidebar before uploading videos.")
+
     with st.form("submission_form", clear_on_submit=True):
-        platform = st.selectbox(
-            "Platform",
-            ["youtube/video", "instagram/reel", "instagram/post"],
-        )
-        content_id = st.text_input("Content ID")
-        direct_video_url = st.text_input("Direct video URL")
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            platform = st.selectbox(
+                "Platform",
+                ["youtube/video", "instagram/reel", "instagram/post"],
+            )
+            content_id = st.text_input("Content ID", placeholder="Enter unique content identifier")
+        
+        with col2:
+            # Video upload section
+            st.markdown("**Video Upload**")
+            uploaded_file = st.file_uploader(
+                "Choose MP4 video file",
+                type=['mp4'],
+                help="Upload your video file (MP4 format only)"
+            )
+            
+            # Option to manually enter URL instead of upload
+            manual_url = st.text_input(
+                "Or enter direct video URL manually",
+                placeholder="https://your-domain.com/video.mp4",
+                help="Leave empty to upload file above"
+            )
 
-        colf = st.columns(2)
-        save_btn = colf[0].form_submit_button("💾 Save")
-        cancel_btn = colf[1].form_submit_button("Reset")
+        # Show upload progress and preview
+        if uploaded_file is not None:
+            st.success(f"✅ File selected: {uploaded_file.name} ({uploaded_file.size / (1024*1024):.1f} MB)")
+            
+            # Video preview
+            with st.expander("🎬 Preview video"):
+                st.video(uploaded_file)
 
+        colf = st.columns(3)
+        save_btn = colf[0].form_submit_button("💾 Save", disabled=not r2_configured and not manual_url)
+        cancel_btn = colf[1].form_submit_button("🔄 Reset")
+        
         if save_btn:
             try:
+                direct_video_url = ""
+                
+                # Determine video URL source
+                if manual_url:
+                    direct_video_url = manual_url
+                elif uploaded_file is not None and r2_configured:
+                    # Upload to R2
+                    with st.spinner("🚀 Uploading video to R2..."):
+                        direct_video_url = upload_video_to_r2(
+                            uploaded_file,
+                            st.session_state["r2_endpoint"],
+                            st.session_state["r2_access_key"],
+                            st.session_state["r2_secret_key"],
+                            st.session_state["r2_bucket"],
+                            st.session_state.get("r2_public_domain")
+                        )
+                        st.success(f"✅ Video uploaded successfully!")
+                        st.info(f"📎 Direct URL: {direct_video_url}")
+                else:
+                    st.error("Please either upload a video file or enter a manual URL.")
+                    st.stop()
+
+                # Create submission
                 new_sub = Submission(
                     platform=platform,
                     content_id=content_id,
                     direct_video_url=direct_video_url,
                 )
 
+                # Update or add submission
                 replaced = False
                 for i, s in enumerate(subs):
                     if s == new_sub:
@@ -182,6 +312,7 @@ def main():
                 if not replaced:
                     subs.append(new_sub)
 
+                # Save to GitHub Gist
                 save_submissions(
                     st.session_state["api_key"],
                     st.session_state["gist_id"],
@@ -189,18 +320,44 @@ def main():
                     subs,
                 )
                 st.session_state["subs"] = subs
-                st.success("Submission saved.")
+                st.success("✅ Submission saved successfully!")
                 st.experimental_rerun()
+                
             except ValidationError as exc:
-                st.error(f"Validation error: {exc}")
+                st.error(f"❌ Validation error: {exc}")
             except Exception as exc:
-                st.error(str(exc))
+                st.error(f"❌ Error: {exc}")
 
     # ---------------- Footer ----------------
+    st.divider()
+    
+    with st.expander("ℹ️ Setup Instructions"):
+        st.markdown("""
+        ### GitHub Setup
+        1. Create a GitHub Personal Access Token with **gist** scope
+        2. Create a new Gist or use existing one
+        3. Enter the Gist ID (from the URL)
+        
+        ### R2 Setup  
+        1. Go to Cloudflare Dashboard → R2 Object Storage
+        2. Create a bucket for your videos
+        3. Generate R2 API tokens (Access Key & Secret Key)
+        4. Get your R2 endpoint URL
+        5. (Optional) Set up custom domain for public access
+        """)
+    
     st.caption(
-        "Database lives in your own GitHub Gist. You need a token with **gist** scope only."
+        "🔒 Database lives in your own GitHub Gist. Videos are stored in your R2 bucket. You need a GitHub token with **gist** scope and R2 API credentials."
     )
 
 
 if __name__ == "__main__":
     main()
+
+
+#Bucket info:
+# id: f190a221de18d9a334f1757abfdd226d // https://f190a221de18d9a334f1757abfdd226d.r2.cloudflarestorage.com
+
+#access key: 041084871f89001cecf24a9aecfaa406
+#secret key: f0904ad6664536c9558751029896dd8021f2711438cfaa7e5110959b003546e7
+#https://f190a221de18d9a334f1757abfdd226d.r2.cloudflarestorage.com
