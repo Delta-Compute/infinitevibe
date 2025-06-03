@@ -5,8 +5,8 @@ Bittensor based AI Film studio, where creators (miners) are incentivized to inve
 Validators in the network will receive reveneus from tensorflix.ai site based on their stakeweight - incentivizing traditional "Hollywood" producers to enter Bittensor to scout and produce new content. 
 
 Miner collateral will be an important component. to Disincentivize cheating but also to be used to fund future projects, with greater technology needs. 
-Freedom of expression and content genre and form are largely open to the miners creative direction, especially at the project startup. Eventually we expect to see Miners progress from clips or "reels" to short films, mini-series.  
 
+Content creation will be largely up to the miner, especially at the start of the project. Only a few guardrails (AI based and not illicit). Our goal is to cast the broadest net possible to attract creatives, marketers and project notariety from the media industry. However, to progress our mission and to monetize the project, specific miner tasks will be implemented. Our media studio will create long form content as well as contract specific media materials.
 
 ## Overview
 
