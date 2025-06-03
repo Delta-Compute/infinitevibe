@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import datetime
 from typing import Optional
+from utils import filter_AI_video, filter_caption_video
 
 
 class InstagramPostMetadata(BaseModel):
@@ -44,7 +45,8 @@ class InstagramPostMetadata(BaseModel):
 
     def to_scalar(self) -> float:
         return (self.comment_count + self.like_count + self.video_view_count) / 3
-
+    def validate_caption(self) -> bool:
+        return filter_caption_video(self.caption)
 
 class InstagramPostMetadataRequest(BaseModel):
     content_id: str
@@ -65,7 +67,6 @@ class InstagramPostMetadataRequest(BaseModel):
 
 class YoutubeVideoMetadata(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-
     title: str
     description: str
     thumbnail_url: str
@@ -109,6 +110,9 @@ class YoutubeVideoMetadata(BaseModel):
 
     def to_scalar(self) -> float:
         return (self.view_count + self.like_count + self.comment_count) / 3
+
+    def validate_caption(self) -> bool:
+        return filter_caption_video(self.description)
 
 
 class YoutubeVideoMetadataRequest(BaseModel):
