@@ -18,9 +18,11 @@ class Config(BaseSettings):
     set_weights_interval: int = Field(60 * 10, description="seconds")
     max_int_weight: int = 65_535
     version_key: int = 0  # bump on scoring-logic changes
+    ai_generated_score_threshold: float = 0.3
 
     # ─────────────────── Services ───────────────────
     service_platform_tracker_url: str = "http://localhost:12001"
+    service_ai_detector_url: str = "http://localhost:12002"
 
     # ─────────────────── MongoDB  ───────────────────
     mongodb_uri: str = Field(default="mongodb://localhost:27017/", env="MONGODB_URI")
@@ -34,7 +36,7 @@ class Config(BaseSettings):
         }[self.subtensor_network]
     
     def get_signature_post(self, hotkey: str) -> str:
-        return f"@tensorflix-bittensor {hotkey[-5:]}"
+        return f"Made with @infinitevibe.ai on #bittensor\n{hotkey[-5:]}"
 
 
 CONFIG = Config()

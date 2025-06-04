@@ -110,11 +110,12 @@ class TensorFlixValidator:
                 r = await client.get(url)
                 r.raise_for_status()
             data = r.json()
-            return (
-                YoutubeVideoMetadata(**data)
-                if sub.platform == "youtube"
-                else InstagramPostMetadata(**{**data, "platform": sub.platform})
-            )
+            if sub.platform == "youtube/video":
+                return YoutubeVideoMetadata.from_response(data)
+            elif sub.platform in ("instagram/reel", "instagram/post"):
+                return InstagramPostMetadata.from_response(data)
+            else:
+                raise ValueError(f"Unknown platform: {sub.platform}")
         except Exception as exc:
             logger.error(
                 "metrics_fetch_failed",
@@ -141,6 +142,19 @@ class TensorFlixValidator:
             )
 
             metric = await self._fetch_metrics(sub)
+            if not sub.checked_for_ai:
+                logger.info(f"Checking for AI in {sub.direct_video_url}")
+                async with httpx.AsyncClient(timeout=32.0) as client:
+                    r = await client.get(f"{CONFIG.service_ai_detector_url}/detect?url={sub.direct_video_url}")
+                    r.raise_for_status()
+                    metric.ai_score = r.json()["mean_ai_generated"]
+                    sub.checked_for_ai = True
+                    await self._submissions.update_one(
+                        {"hotkey": hotkey, "content_id": sub.content_id},
+                        {"$set": {"checked_for_ai": True}},
+                        upsert=True,
+                    )
+                logger.info(f"AI score: {metric.ai_score}")
             if metric is None:
                 continue
 

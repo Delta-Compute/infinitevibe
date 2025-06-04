@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import datetime
 from typing import Optional
+from tensorflix.config import CONFIG
 
 
 class InstagramPostMetadata(BaseModel):
@@ -21,7 +22,9 @@ class InstagramPostMetadata(BaseModel):
     video_duration: int = Field(alias="videoDuration")
     video_play_count: int = Field(alias="videoPlayCount")
     video_view_count: int = Field(alias="videoViewCount")
-    video_play_url: str = Field(alias="videoUrl")
+    crawl_video_url: str = Field(alias="videoUrl", default="")
+
+    ai_score: float = 0.0
 
     @field_validator("video_duration", mode="before")
     @classmethod
@@ -44,6 +47,9 @@ class InstagramPostMetadata(BaseModel):
 
     def to_scalar(self) -> float:
         return (self.comment_count + self.like_count + self.video_view_count) / 3
+    
+    def check_signature(self, hotkey: str) -> bool:
+        return CONFIG.get_signature_post(hotkey) in self.caption
 
 
 class InstagramPostMetadataRequest(BaseModel):
@@ -74,6 +80,9 @@ class YoutubeVideoMetadata(BaseModel):
     like_count: int
     comment_count: int
     tags: Optional[list[str]] = None
+    crawl_video_url: str = ""
+
+    ai_score: float = 0.0
 
     @classmethod
     def from_response(cls, response: dict) -> "YoutubeVideoMetadata":
@@ -99,6 +108,7 @@ class YoutubeVideoMetadata(BaseModel):
             "like_count": int(statistics.get("likeCount", 0)),
             "comment_count": int(statistics.get("commentCount", 0)),
             "tags": snippet.get("tags", []),
+            "crawl_video_url": snippet.get("videoUrl", ""),
         }
 
         return cls.model_validate(extracted_data)
@@ -109,7 +119,9 @@ class YoutubeVideoMetadata(BaseModel):
 
     def to_scalar(self) -> float:
         return (self.view_count + self.like_count + self.comment_count) / 3
-
+    
+    def check_signature(self, hotkey: str) -> bool:
+        return CONFIG.get_signature_post(hotkey) in self.description
 
 class YoutubeVideoMetadataRequest(BaseModel):
     content_id: str

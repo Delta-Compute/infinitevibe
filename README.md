@@ -23,3 +23,4 @@ InfiniteVibe implements a decentralized content creation and validation pipeline
 
 - [Validating](docs/validating.md)
 - [Mining](docs/mining.md)
+- [How the Subnet Works](docs/how-subnet-works.md)

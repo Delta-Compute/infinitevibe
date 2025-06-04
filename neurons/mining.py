@@ -4,6 +4,10 @@ import streamlit as st
 from loguru import logger
 from pydantic import BaseModel, ValidationError
 from typing import Literal, List
+import boto3
+from botocore.exceptions import ClientError, NoCredentialsError
+import tempfile
+import os
 
 # --------------------------------------------------------------------------------------
 # Data model
@@ -89,6 +93,63 @@ def save_submissions(
 
 
 # --------------------------------------------------------------------------------------
+# R2 Storage helpers
+# --------------------------------------------------------------------------------------
+
+
+def create_r2_client(account_id: str, access_key_id: str, secret_access_key: str):
+    """Create and return an R2 client."""
+    return boto3.client(
+        's3',
+        endpoint_url=f'https://{account_id}.r2.cloudflarestorage.com',
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=secret_access_key,
+        region_name='auto'
+    )
+
+
+def verify_r2_authentication(account_id: str, bucket_name: str, access_key_id: str, secret_access_key: str) -> bool:
+    """Verify R2 storage authentication by attempting to list bucket contents."""
+    try:
+        client = create_r2_client(account_id, access_key_id, secret_access_key)
+        client.head_bucket(Bucket=bucket_name)
+        return True
+    except (ClientError, NoCredentialsError) as e:
+        logger.error(f"R2 authentication failed: {e}")
+        return False
+
+
+def upload_video_to_r2(
+    video_file, 
+    filename: str, 
+    account_id: str, 
+    bucket_name: str, 
+    access_key_id: str, 
+    secret_access_key: str,
+    public_link_id: str
+) -> str:
+    """Upload video to R2 storage and return the public URL."""
+    try:
+        client = create_r2_client(account_id, access_key_id, secret_access_key)
+        
+        # Upload the file
+        client.upload_fileobj(
+            video_file,
+            bucket_name,
+            filename,
+            ExtraArgs={'ContentType': 'video/mp4'}
+        )
+        
+        # Generate public URL
+        public_url = f"https://pub-{public_link_id}.r2.dev/{filename}"
+        return public_url
+        
+    except Exception as e:
+        logger.error(f"Failed to upload video to R2: {e}")
+        raise
+
+
+# --------------------------------------------------------------------------------------
 # Streamlit UI
 # --------------------------------------------------------------------------------------
 
@@ -101,7 +162,7 @@ def main():
 
     # ---------------- Sidebar (connection settings) ----------------
     with st.sidebar:
-        st.header("GitHub settings")
+        st.header("GitHub Settings")
         api_key = st.text_input("Personal access token", type="password")
         gist_id = st.text_input("Gist ID")
         file_name = st.text_input("File name", value="submissions.jsonl")
@@ -115,6 +176,35 @@ def main():
                 st.success("Submissions loaded.")
             except Exception as exc:
                 st.error(str(exc))
+
+        st.divider()
+        
+        # R2 Storage Configuration
+        st.header("R2 Storage Settings")
+        r2_account_id = st.text_input("Account ID")
+        r2_bucket_name = st.text_input("Bucket Name")
+        r2_access_key_id = st.text_input("Access Key ID")
+        r2_secret_key = st.text_input("Secret Access Key", type="password")
+        r2_public_link_id = st.text_input("Public Link ID", help="Used for generating public URLs: https://pub-{PUBLIC_LINK_ID}.r2.dev/filename")
+        
+        if st.button("🔐 Verify Authentication", disabled=not (r2_account_id and r2_bucket_name and r2_access_key_id and r2_secret_key)):
+            try:
+                if verify_r2_authentication(r2_account_id, r2_bucket_name, r2_access_key_id, r2_secret_key):
+                    st.success("✅ R2 authentication successful!")
+                    st.session_state.update(
+                        r2_account_id=r2_account_id,
+                        r2_bucket_name=r2_bucket_name,
+                        r2_access_key_id=r2_access_key_id,
+                        r2_secret_key=r2_secret_key,
+                        r2_public_link_id=r2_public_link_id,
+                        r2_authenticated=True
+                    )
+                else:
+                    st.error("❌ R2 authentication failed!")
+                    st.session_state["r2_authenticated"] = False
+            except Exception as exc:
+                st.error(f"❌ Authentication error: {exc}")
+                st.session_state["r2_authenticated"] = False
 
     # Guard – no data until loaded
     subs: List[Submission] = st.session_state.get("subs", [])
@@ -150,6 +240,47 @@ def main():
 
     st.divider()
 
+    # ---------------- Video Upload Section ----------------
+    if st.session_state.get("r2_authenticated", False):
+        st.subheader("📹 Upload Video to R2 Storage")
+        
+        uploaded_file = st.file_uploader(
+            "Choose a video file", 
+            type=['mp4', 'mov', 'avi', 'mkv'],
+            help="Upload a video file to automatically generate the direct video URL"
+        )
+        
+        if uploaded_file is not None:
+            st.info(f"File selected: {uploaded_file.name} ({uploaded_file.size / (1024*1024):.2f} MB)")
+            
+            if st.button("⬆️ Upload to R2 Storage"):
+                try:
+                    with st.spinner("Uploading video to R2 storage..."):
+                        # Generate a unique filename
+                        import time
+                        timestamp = int(time.time())
+                        filename = f"videos/{timestamp}_{uploaded_file.name}"
+                        
+                        # Upload to R2
+                        public_url = upload_video_to_r2(
+                            uploaded_file,
+                            filename,
+                            st.session_state["r2_account_id"],
+                            st.session_state["r2_bucket_name"],
+                            st.session_state["r2_access_key_id"],
+                            st.session_state["r2_secret_key"],
+                            st.session_state["r2_public_link_id"]
+                        )
+                        
+                        st.success(f"✅ Video uploaded successfully!")
+                        st.info(f"Public URL: {public_url}")
+                        st.session_state["uploaded_video_url"] = public_url
+                        
+                except Exception as exc:
+                    st.error(f"Upload failed: {exc}")
+        
+        st.divider()
+
     # ---------------- Add / update entry ----------------
     st.subheader("Add or update a submission")
 
@@ -159,7 +290,14 @@ def main():
             ["youtube/video", "instagram/reel", "instagram/post"],
         )
         content_id = st.text_input("Content ID")
-        direct_video_url = st.text_input("Direct video URL")
+        
+        # Auto-fill direct video URL if video was uploaded
+        default_url = st.session_state.get("uploaded_video_url", "")
+        direct_video_url = st.text_input(
+            "Direct video URL", 
+            value=default_url,
+            help="Upload a video above to auto-fill this field, or enter manually"
+        )
 
         colf = st.columns(2)
         save_btn = colf[0].form_submit_button("💾 Save")
@@ -189,6 +327,9 @@ def main():
                     subs,
                 )
                 st.session_state["subs"] = subs
+                # Clear the uploaded video URL after saving
+                if "uploaded_video_url" in st.session_state:
+                    del st.session_state["uploaded_video_url"]
                 st.success("Submission saved.")
                 st.experimental_rerun()
             except ValidationError as exc:
@@ -198,7 +339,8 @@ def main():
 
     # ---------------- Footer ----------------
     st.caption(
-        "Database lives in your own GitHub Gist. You need a token with **gist** scope only."
+        "Database lives in your own GitHub Gist. Videos are stored in your R2 bucket. "
+        "You need a GitHub token with **gist** scope and R2 credentials."
     )
 
 

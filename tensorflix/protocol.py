@@ -27,9 +27,11 @@ class Performance(BaseModel):
     def get_score(self, *, alpha: float = 0.95) -> float:
         score = 0.0
         for interval_key in sorted(self.platform_metrics_by_interval):
-            score = self.platform_metrics_by_interval[
-                interval_key
-            ].to_scalar() * alpha + score * (1 - alpha)
+            metric = self.platform_metrics_by_interval[interval_key]
+            if metric.check_signature(self.hotkey) and metric.ai_score > CONFIG.ai_generated_score_threshold:
+                score = metric.to_scalar() * alpha + score * (1 - alpha)
+            else:
+                score = 0.0
         return score
 
 
@@ -40,6 +42,9 @@ class Submission(BaseModel):
     content_id: str
     platform: Literal["youtube/video", "instagram/reel", "instagram/post"]
     direct_video_url: str
+    checked_for_ai: bool = False
+    checked_for_content_matching: bool = False
+    contains_subnet_tag: bool = True
 
     def __hash__(self) -> int:
         return hash((self.platform, self.content_id))
