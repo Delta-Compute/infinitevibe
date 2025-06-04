@@ -130,7 +130,7 @@ def upload_video_to_r2(
             ExtraArgs={'ContentType': 'video/mp4'}
         )
         
-        public_url = f"https://pub-{BUCKET_ID}.r2.dev/{unique_filename}"
+        public_url = f"https://pub-{bucket_id}.r2.dev/{unique_filename}"
         
         print(f"✅ Upload successful!")
         print(f"🔗 Public sharing link: {public_url}")
@@ -170,16 +170,18 @@ def main():
         r2_access_key = st.text_input("R2 Access Key", type="password")
         r2_secret_key = st.text_input("R2 Secret Key", type="password")
         r2_bucket = st.text_input("R2 Bucket Name")
+        r2_bucket_id = st.text_input("R2 Bucket ID", placeholder="5c22787008944495aab6a162ece5f976")
         r2_public_domain = st.text_input("Public Domain (optional)", placeholder="your-domain.com")
 
         if st.button("🔄 Load / refresh", disabled=not (api_key and gist_id)):
+            logger.info(f"Loading submissions from Gist {gist_id}...")
             try:
                 st.session_state["subs"] = load_submissions(api_key, gist_id, file_name)    
                 st.session_state.update(
                     api_key=api_key, gist_id=gist_id, file_name=file_name,
                     r2_endpoint=r2_endpoint, r2_access_key=r2_access_key,
                     r2_secret_key=r2_secret_key, r2_bucket=r2_bucket,
-                    r2_public_domain=r2_public_domain
+                    r2_bucket_id=r2_bucket_id, r2_public_domain=r2_public_domain
                 )
                 st.success("Submissions loaded.")
             except Exception as exc:
@@ -227,7 +229,8 @@ def main():
         st.session_state.get("r2_endpoint"),
         st.session_state.get("r2_access_key"),
         st.session_state.get("r2_secret_key"),
-        st.session_state.get("r2_bucket")
+        st.session_state.get("r2_bucket"),
+        st.session_state.get("r2_bucket_id")
     ])
 
     if not r2_configured:
@@ -287,6 +290,7 @@ def main():
                             st.session_state["r2_access_key"],
                             st.session_state["r2_secret_key"],
                             st.session_state["r2_bucket"],
+                            st.session_state.get("r2_bucket_id"),
                             st.session_state.get("r2_public_domain")
                         )
                         st.success(f"✅ Video uploaded successfully!")
@@ -355,9 +359,3 @@ if __name__ == "__main__":
     main()
 
 
-#Bucket info:
-# id: f190a221de18d9a334f1757abfdd226d // https://f190a221de18d9a334f1757abfdd226d.r2.cloudflarestorage.com
-
-#access key: 041084871f89001cecf24a9aecfaa406
-#secret key: f0904ad6664536c9558751029896dd8021f2711438cfaa7e5110959b003546e7
-#https://f190a221de18d9a334f1757abfdd226d.r2.cloudflarestorage.com
