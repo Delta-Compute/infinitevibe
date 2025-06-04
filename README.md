@@ -1,6 +1,6 @@
-# InfiniteVibe.ai - Media Production and Streaming
+# InfiniteVibe Media Production and Streaming
 
-AI Video and media studio, where creators (miners) are incentivized to invest in and refine their own creative AI skills and tools, to expand the horizons of AI video production. 
+InfiniteVibe is an AI‐driven video and media studio putting Bittensor at the frontier of AI-Generated video production. 
 
 Miners respond to tasks and create AI Generative video using any model or means at their own disposal. Miner scoring and emissions are determined by real world user feedback e.g. paying for the SN output or views/engagement. As a way to grow awareness and attract the worlds best creatives to SN89, the SN will first reward miners based on submissions engagement on the miner's own social media profiles. We will funnel traffic to infinitevibe.ai and tensorflix.ai - where a Beta list of organic tasks is being populated waiting for the SN reach quality output.
 
@@ -10,7 +10,7 @@ To ensure that economic incentives are aligned on quality SN output and to disin
 
 ## Creative Direction
 
-Our goal is to give miners as much creative freedom as possible. This will be especially evident at the start of the project when only a few guardrails will be present and the focus is on viralization of Subnet 89 and Bittensor. Again our goal at launch is to cast the broadest net to attract thousands of creatives and notariety from the media industry and drive traffic to our sites. Eventually user generated organic tasks with defined visions will be created for miners and winners will be those who make the best interpretation. In summary, we will let the market will drive content creation.
+Our goal is to give miners as much creative freedom and incentive to push the boundries of AI video production. Miners will be especially free to explore, and thus SN output more unweilding, at te start of the project when the fewest guardrails will be present. Our initial goal is to cast the broadest net and creatives and notariety from the media industry. Eventually miner tasks will have more defined and miners will need to interpret signals from the market and create accordingly. The SN goal and basis for policies will be to let the market drive the creative direction we go in - and NOT centralize style and content decisions.
 
 Starting with bite-size creative tasks, InfiniteVibe creative network will fine tune to become a full fledged media production studio. AI is rewriting the book (again) on Hollywood and big Media-Tech, and this time Bittensor and InfiniteVibe will become the leader as a distributed, decentralized, and ultimately THE MOST CREATIVE power player.
 
