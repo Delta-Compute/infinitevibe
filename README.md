@@ -1,12 +1,12 @@
-# TensorFlix - Media Production and Streaming
+# InfiniteVibe.ai - Media Production and Streaming
 
-Bittensor based AI Film studio, where creators (miners) are incentivized to invest in technologies and push the creative limits of AI video and film production. Validators act as producers, ensuring that output quality progressively improves to the highest of levels of traditional studios. As a way to grow awareness and attract the attention of the worlds best creatives, miners will initially be graded based on their work's engagement on social media. The content will be reposted on https://tensorflix.ai/ - eventually scoring will migrate to tensorflix.ai and will be based on more refined metrics than simply views/likes. 
+AI Video and media studio, where creators (miners) are incentivized to invest in technologies and their own skillsets to push the creative limits of AI video production. Validators act as editor/producers, ensuring that output quality progresses to the highest level. As a way to grow awareness and attract the attention of the worlds best creatives, miners will initially be graded based on their work's engagement on social media. The content will be reposted on our sites, infinitevibe.ai. 
 
-Validators in the network will receive reveneus from tensorflix.ai site based on their stakeweight - incentivizing traditional "Hollywood" producers to enter Bittensor to scout and produce new content. 
+Miner incentive will soon shift to align with monetization of the content. This could be contracts as a creative agency, or driving traffic to our video streaming site. 
 
-Miner collateral will be an important component. to Disincentivize cheating but also to be used to fund future projects, with greater technology needs. 
-Freedom of expression and content genre and form are largely open to the miners creative direction, especially at the project startup. Eventually we expect to see Miners progress from clips or "reels" to short films, mini-series.  
+Validators in the network will receive reveneus from infinitevibe.ai or tensorflix.ai and any other monetization of the SN miner output based on their stakeweight. Our nearterm goal is to align Validators closely with specific creators, so to allow those from the media/tech industry to enter as Validators and participate directly in the miner output.  Miner collateral will be an important component to this end.
 
+Our goal is to give our miner creators as much creative freedom as possible. This will especially true at the start of the project when only a few guardrails will be present and the focus is on viralization of the InfiniteVibe and Bittensor. Our goal at launch is to cast the broadest net possible to attract creatives, marketers and project notariety from the media industry. Eventually specific tasks will be created for miners in alignment with the marketplace for their collective works (think advertising contracts, short films, even series and full length films)
 
 ## Overview
 
