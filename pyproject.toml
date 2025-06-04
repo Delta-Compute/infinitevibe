@@ -18,6 +18,7 @@ dependencies = [
     "httpx>=0.28.1",
     "loguru>=0.7.3",
     "motor>=3.7.1",
+    "opencv-python>=4.8.0",
     "pydantic-settings>=2.9.1",
     "python-dotenv>=1.0.0",
     "python-multipart>=0.0.6",
