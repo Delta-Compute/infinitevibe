@@ -12,7 +12,7 @@ To ensure that economic incentives are aligned on quality SN output and to disin
 
 Our goal is to give miners as much creative freedom and incentive to push the boundries of AI video production. Miners will be especially free to explore, and thus SN output more unweilding, at te start of the project when the fewest guardrails will be present. Our initial goal is to cast the broadest net and creatives and notariety from the media industry. Eventually miner tasks will have more defined and miners will need to interpret signals from the market and create accordingly. The SN goal and basis for policies will be to let the market drive the creative direction we go in - and NOT centralize style and content decisions.
 
-Starting with bite-size creative tasks, InfiniteVibe creative network will fine tune to become a full fledged media production studio. AI is rewriting the book (again) on Hollywood and big Media-Tech, and this time Bittensor and InfiniteVibe will become the leader as a distributed, decentralized, and ultimately THE MOST CREATIVE power player.
+Starting with bite-size creative tasks, InfiniteVibe creative network will fine tune to become a full fledged media production studio. AI is rewriting the book (again) on Hollywood and big Media-Tech, and this time Bittensor and InfiniteVibe will become the leader as a distributed, decentralized, and ultimately THE MOST CREATIVE player.
 
 ## Overview
 
