@@ -26,25 +26,50 @@ class PlatformTracker(ABC):
         """Return list of supported content types for this platform."""
         pass
 
+    async def get_direct_url(
+        self, platform_link: str, apify_client: ApifyClientAsync
+    ) -> str:
+        """Get direct url for a piece of content."""
+        payload = {
+            "link": platform_link,
+            "proxyConfiguration": {
+                "useApifyProxy": True,
+                "apifyProxyGroups": ["RESIDENTIAL"],
+            },
+        }
+        run = await apify_client.actor(config.downloader_actor_id).call(
+            run_input=payload
+        )
+        response = await apify_client.dataset(run["defaultDatasetId"]).list_items()
+        item = response.items[0]
+        logger.info(item)
+        medias = item["result"]["medias"]
+        for media in medias:
+            if media["type"] == "video":
+                return media["url"]
+        return None
+
 
 class YouTubeTracker(PlatformTracker):
     """YouTube platform tracker implementation."""
 
-    def __init__(self, api_key: str):
-        self.api_key = api_key
+    def __init__(self, apify_client: ApifyClientAsync):
+        self.apify_client = apify_client
+        self.actor_id = config.youtube_actor_id
 
-    async def get_metadata(self, content_id: str) -> Dict[str, Any]:
+    async def get_metadata(self, content_id: str) -> YoutubeVideoMetadata:
         """Get YouTube video metadata."""
         logger.info(f"Getting YouTube video metadata for {content_id}")
 
         request = YoutubeVideoMetadataRequest(content_id=content_id)
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                request.get_request_url(self.api_key), timeout=config.timeout_seconds
-            )
+        apify_payload = request.get_apify_payload()
+        print(apify_payload)
 
-        logger.info(response.json())
-        return YoutubeVideoMetadata.from_response(response.json()).to_response()
+        run = await self.apify_client.actor(self.actor_id).call(run_input=apify_payload)
+        response = await self.apify_client.dataset(run["defaultDatasetId"]).list_items()
+
+        logger.info(response.items[0])
+        return YoutubeVideoMetadata.from_response(response.items[0])
 
     def get_supported_content_types(self) -> list[str]:
         return ["video"]
@@ -57,7 +82,7 @@ class InstagramTracker(PlatformTracker):
         self.apify_client = apify_client
         self.actor_id = config.instagram_actor_id
 
-    async def get_metadata(self, content_id: str) -> Dict[str, Any]:
+    async def get_metadata(self, content_id: str) -> InstagramPostMetadata:
         """Get Instagram post metadata."""
         logger.info(f"Getting Instagram post metadata for {content_id}")
 
@@ -69,7 +94,7 @@ class InstagramTracker(PlatformTracker):
 
         logger.info(response.items[0])
         metadata = InstagramPostMetadata.from_response(response.items[0])
-        return metadata.to_response()
+        return metadata
 
     def get_supported_content_types(self) -> list[str]:
         return ["post", "reel", "story"]

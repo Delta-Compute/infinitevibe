@@ -4,6 +4,22 @@ from typing import Optional
 from tensorflix.config import CONFIG
 
 
+def get_platform_link(platform: str, content_id: str, content_type: str) -> str:
+    if platform == "youtube":
+        return f"https://www.youtube.com/watch?v={content_id}"
+    elif platform == "instagram":
+        if content_type == "post":
+            return f"https://www.instagram.com/p/{content_id}"
+        elif content_type == "reel":
+            return f"https://www.instagram.com/reel/{content_id}"
+        elif content_type == "story":
+            return f"https://www.instagram.com/stories/{content_id}"
+        else:
+            raise ValueError(f"Invalid content type: {content_type}")
+    else:
+        raise ValueError(f"Invalid platform: {platform}")
+
+
 class InstagramPostMetadata(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     caption: str
@@ -37,7 +53,7 @@ class InstagramPostMetadata(BaseModel):
     def from_response(cls, response: dict) -> "InstagramPostMetadata":
         # Convert timestamp string to datetime
         response["published_at"] = datetime.strptime(
-            response["timestamp"], "%Y-%m-%dT%H:%M:%S.%fZ"
+            response["published_at"], "%Y-%m-%dT%H:%M:%S"
         )
         return cls.model_validate(response)
 
@@ -46,14 +62,15 @@ class InstagramPostMetadata(BaseModel):
         return self.model_dump(exclude_none=True, by_alias=False)
 
     def to_scalar(self) -> float:
-        return (self.comment_count + self.like_count + self.video_view_count) / 3
-    
+        return self.video_view_count
+
     def check_signature(self, hotkey: str) -> bool:
         return CONFIG.get_signature_post(hotkey) in self.caption
 
 
 class InstagramPostMetadataRequest(BaseModel):
     content_id: str
+    get_direct_url: bool = False
 
     def get_apify_payload(self) -> dict:
         return {
@@ -72,59 +89,56 @@ class InstagramPostMetadataRequest(BaseModel):
 class YoutubeVideoMetadata(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    title: str
-    description: str
-    thumbnail_url: str
-    published_at: datetime
-    view_count: int
-    like_count: int
-    comment_count: int
-    tags: Optional[list[str]] = None
+    title: str = Field(alias="title")
+    caption: str = Field(alias="text")
+    thumbnail_url: str = Field(alias="thumbnailUrl")
+    published_at: datetime = Field(alias="date")
+    view_count: int = Field(alias="viewCount")
+    like_count: int = Field(alias="likes")
+    comment_count: int = Field(alias="commentsCount")
     crawl_video_url: str = ""
 
     ai_score: float = 0.0
 
     @classmethod
     def from_response(cls, response: dict) -> "YoutubeVideoMetadata":
-        """Extract data from nested YouTube API response structure."""
-        if not response.get("items") or len(response["items"]) == 0:
-            raise ValueError("No video data found in response")
-
-        video_data = response["items"][0]
-        snippet = video_data.get("snippet", {})
-        statistics = video_data.get("statistics", {})
-
-        # Extract the nested data
-        extracted_data = {
-            "title": snippet.get("title"),
-            "description": snippet.get("description"),
-            "thumbnail_url": snippet.get("thumbnails", {})
-            .get("default", {})
-            .get("url"),
-            "published_at": datetime.strptime(
-                snippet.get("publishedAt", ""), "%Y-%m-%dT%H:%M:%SZ"
-            ),
-            "view_count": int(statistics.get("viewCount", 0)),
-            "like_count": int(statistics.get("likeCount", 0)),
-            "comment_count": int(statistics.get("commentCount", 0)),
-            "tags": snippet.get("tags", []),
-            "crawl_video_url": snippet.get("videoUrl", ""),
-        }
-
-        return cls.model_validate(extracted_data)
+        # Convert timestamp string to datetime
+        response["published_at"] = datetime.strptime(
+            response["published_at"], "%Y-%m-%dT%H:%M:%SZ"
+        )
+        return cls.model_validate(response)
 
     def to_response(self) -> dict:
         """Convert to response dict."""
         return self.model_dump(exclude_none=True)
 
     def to_scalar(self) -> float:
-        return (self.view_count + self.like_count + self.comment_count) / 3
-    
+        return self.view_count
+
     def check_signature(self, hotkey: str) -> bool:
-        return CONFIG.get_signature_post(hotkey) in self.description
+        return CONFIG.get_signature_post(hotkey) in self.caption
+
 
 class YoutubeVideoMetadataRequest(BaseModel):
     content_id: str
+    get_direct_url: bool = False
 
-    def get_request_url(self, api_key: str) -> str:
-        return f"https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id={self.content_id}&key={api_key}"
+    def get_apify_payload(self) -> dict:
+        return {
+            "maxResults": 1,
+            "startUrls": [
+                {
+                    "url": f"https://www.youtube.com/watch?v={self.content_id}",
+                    "method": "GET",
+                }
+            ],
+        }
+
+
+class MetricsRequest(BaseModel):
+    """Base model for metrics request."""
+
+    platform: str
+    content_type: str
+    content_id: str
+    get_direct_url: bool = False

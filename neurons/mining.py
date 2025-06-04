@@ -100,15 +100,17 @@ def save_submissions(
 def create_r2_client(account_id: str, access_key_id: str, secret_access_key: str):
     """Create and return an R2 client."""
     return boto3.client(
-        's3',
-        endpoint_url=f'https://{account_id}.r2.cloudflarestorage.com',
+        "s3",
+        endpoint_url=f"https://{account_id}.r2.cloudflarestorage.com",
         aws_access_key_id=access_key_id,
         aws_secret_access_key=secret_access_key,
-        region_name='auto'
+        region_name="auto",
     )
 
 
-def verify_r2_authentication(account_id: str, bucket_name: str, access_key_id: str, secret_access_key: str) -> bool:
+def verify_r2_authentication(
+    account_id: str, bucket_name: str, access_key_id: str, secret_access_key: str
+) -> bool:
     """Verify R2 storage authentication by attempting to list bucket contents."""
     try:
         client = create_r2_client(account_id, access_key_id, secret_access_key)
@@ -120,30 +122,27 @@ def verify_r2_authentication(account_id: str, bucket_name: str, access_key_id: s
 
 
 def upload_video_to_r2(
-    video_file, 
-    filename: str, 
-    account_id: str, 
-    bucket_name: str, 
-    access_key_id: str, 
+    video_file,
+    filename: str,
+    account_id: str,
+    bucket_name: str,
+    access_key_id: str,
     secret_access_key: str,
-    public_link_id: str
+    public_link_id: str,
 ) -> str:
     """Upload video to R2 storage and return the public URL."""
     try:
         client = create_r2_client(account_id, access_key_id, secret_access_key)
-        
+
         # Upload the file
         client.upload_fileobj(
-            video_file,
-            bucket_name,
-            filename,
-            ExtraArgs={'ContentType': 'video/mp4'}
+            video_file, bucket_name, filename, ExtraArgs={"ContentType": "video/mp4"}
         )
-        
+
         # Generate public URL
         public_url = f"https://pub-{public_link_id}.r2.dev/{filename}"
         return public_url
-        
+
     except Exception as e:
         logger.error(f"Failed to upload video to R2: {e}")
         raise
@@ -178,18 +177,28 @@ def main():
                 st.error(str(exc))
 
         st.divider()
-        
+
         # R2 Storage Configuration
         st.header("R2 Storage Settings")
         r2_account_id = st.text_input("Account ID")
         r2_bucket_name = st.text_input("Bucket Name")
         r2_access_key_id = st.text_input("Access Key ID")
         r2_secret_key = st.text_input("Secret Access Key", type="password")
-        r2_public_link_id = st.text_input("Public Link ID", help="Used for generating public URLs: https://pub-{PUBLIC_LINK_ID}.r2.dev/filename")
-        
-        if st.button("🔐 Verify Authentication", disabled=not (r2_account_id and r2_bucket_name and r2_access_key_id and r2_secret_key)):
+        r2_public_link_id = st.text_input(
+            "Public Link ID",
+            help="Used for generating public URLs: https://pub-{PUBLIC_LINK_ID}.r2.dev/filename",
+        )
+
+        if st.button(
+            "🔐 Verify Authentication",
+            disabled=not (
+                r2_account_id and r2_bucket_name and r2_access_key_id and r2_secret_key
+            ),
+        ):
             try:
-                if verify_r2_authentication(r2_account_id, r2_bucket_name, r2_access_key_id, r2_secret_key):
+                if verify_r2_authentication(
+                    r2_account_id, r2_bucket_name, r2_access_key_id, r2_secret_key
+                ):
                     st.success("✅ R2 authentication successful!")
                     st.session_state.update(
                         r2_account_id=r2_account_id,
@@ -197,7 +206,7 @@ def main():
                         r2_access_key_id=r2_access_key_id,
                         r2_secret_key=r2_secret_key,
                         r2_public_link_id=r2_public_link_id,
-                        r2_authenticated=True
+                        r2_authenticated=True,
                     )
                 else:
                     st.error("❌ R2 authentication failed!")
@@ -243,24 +252,27 @@ def main():
     # ---------------- Video Upload Section ----------------
     if st.session_state.get("r2_authenticated", False):
         st.subheader("📹 Upload Video to R2 Storage")
-        
+
         uploaded_file = st.file_uploader(
-            "Choose a video file", 
-            type=['mp4', 'mov', 'avi', 'mkv'],
-            help="Upload a video file to automatically generate the direct video URL"
+            "Choose a video file",
+            type=["mp4", "mov", "avi", "mkv"],
+            help="Upload a video file to automatically generate the direct video URL",
         )
-        
+
         if uploaded_file is not None:
-            st.info(f"File selected: {uploaded_file.name} ({uploaded_file.size / (1024*1024):.2f} MB)")
-            
+            st.info(
+                f"File selected: {uploaded_file.name} ({uploaded_file.size / (1024 * 1024):.2f} MB)"
+            )
+
             if st.button("⬆️ Upload to R2 Storage"):
                 try:
                     with st.spinner("Uploading video to R2 storage..."):
                         # Generate a unique filename
                         import time
+
                         timestamp = int(time.time())
                         filename = f"videos/{timestamp}_{uploaded_file.name}"
-                        
+
                         # Upload to R2
                         public_url = upload_video_to_r2(
                             uploaded_file,
@@ -269,16 +281,16 @@ def main():
                             st.session_state["r2_bucket_name"],
                             st.session_state["r2_access_key_id"],
                             st.session_state["r2_secret_key"],
-                            st.session_state["r2_public_link_id"]
+                            st.session_state["r2_public_link_id"],
                         )
-                        
+
                         st.success(f"✅ Video uploaded successfully!")
                         st.info(f"Public URL: {public_url}")
                         st.session_state["uploaded_video_url"] = public_url
-                        
+
                 except Exception as exc:
                     st.error(f"Upload failed: {exc}")
-        
+
         st.divider()
 
     # ---------------- Add / update entry ----------------
@@ -290,13 +302,13 @@ def main():
             ["youtube/video", "instagram/reel", "instagram/post"],
         )
         content_id = st.text_input("Content ID")
-        
+
         # Auto-fill direct video URL if video was uploaded
         default_url = st.session_state.get("uploaded_video_url", "")
         direct_video_url = st.text_input(
-            "Direct video URL", 
+            "Direct video URL",
             value=default_url,
-            help="Upload a video above to auto-fill this field, or enter manually"
+            help="Upload a video above to auto-fill this field, or enter manually",
         )
 
         colf = st.columns(2)

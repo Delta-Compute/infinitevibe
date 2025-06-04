@@ -9,6 +9,10 @@ from tensorflix.services.platform_tracker.trackers import (
     PlatformTracker,
 )
 from tensorflix.services.platform_tracker.config import config
+from tensorflix.services.platform_tracker.data_types import (
+    MetricsRequest,
+    get_platform_link,
+)
 
 app = FastAPI()
 
@@ -18,20 +22,11 @@ tracker_registry = PlatformTrackerRegistry()
 
 def setup_trackers():
     """Initialize and register all platform trackers."""
-    # Initialize YouTube tracker
-    if config.is_youtube_enabled():
-        youtube_tracker = YouTubeTracker(api_key=config.youtube_api_key)
-        tracker_registry.register("youtube", youtube_tracker)
-    else:
-        logger.warning("YouTube API key not found - YouTube tracking disabled")
-
-    # Initialize Instagram tracker
-    if config.is_instagram_enabled():
-        apify_client = ApifyClientAsync(config.apify_api_key)
-        instagram_tracker = InstagramTracker(apify_client=apify_client)
-        tracker_registry.register("instagram", instagram_tracker)
-    else:
-        logger.warning("Apify API key not found - Instagram tracking disabled")
+    apify_client = ApifyClientAsync(config.apify_api_key)
+    youtube_tracker = YouTubeTracker(apify_client=apify_client)
+    tracker_registry.register("youtube", youtube_tracker)
+    instagram_tracker = InstagramTracker(apify_client=apify_client)
+    tracker_registry.register("instagram", instagram_tracker)
 
 
 def get_tracker_for_platform(platform: str) -> PlatformTracker:
@@ -54,41 +49,42 @@ async def startup_event():
     )
 
 
-@app.get("/get_metrics/{platform}/{content_type}/{content_id}")
+@app.post("/get_metrics")
 async def get_content_metadata(
-    platform: str,
-    content_type: str,
-    content_id: str,
-    tracker: PlatformTracker = Depends(get_tracker_for_platform),
+    request: MetricsRequest,
 ) -> dict:
     """
     Get metadata for content from any supported platform.
 
     Args:
-        platform: The platform name (e.g., 'youtube', 'instagram')
-        content_type: The type of content (e.g., 'video', 'post', 'reel')
-        content_id: The unique identifier for the content
+        request: The metrics request containing platform, content type, and content ID
 
     Returns:
         Dictionary containing content metadata
     """
     try:
-        # Validate content type is supported by the platform
+        tracker = tracker_registry.get_tracker(request.platform)
         supported_types = tracker.get_supported_content_types()
-        if content_type not in supported_types:
+        if request.content_type not in supported_types:
             raise HTTPException(
                 status_code=400,
-                detail=f"Content type '{content_type}' not supported for platform '{platform}'. "
+                detail=f"Content type '{request.content_type}' not supported for platform '{request.platform}'. "
                 f"Supported types: {supported_types}",
             )
 
-        # Get metadata using the appropriate tracker
-        metadata = await tracker.get_metadata(content_id)
-        return metadata
+        metadata = await tracker.get_metadata(request.content_id)
+        if request.get_direct_url:
+            metadata.crawl_video_url = await tracker.get_direct_url(
+                get_platform_link(
+                    request.platform, request.content_id, request.content_type
+                ),
+                tracker.apify_client,
+            )
+        return metadata.to_response()
 
     except Exception as e:
         logger.error(
-            f"Error getting metadata for {platform}/{content_type}/{content_id}: {str(e)}"
+            f"Error getting metadata for {request.platform}/{request.content_type}/{request.content_id}: {str(e)}"
         )
         raise HTTPException(status_code=500, detail=f"Failed to get metadata: {str(e)}")
 

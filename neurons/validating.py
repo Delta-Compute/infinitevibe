@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 async def _bootstrap() -> None:
     parser = argparse.ArgumentParser(description="TensorFlix validator")
     parser.add_argument("--netuid", type=int, default=CONFIG.netuid)

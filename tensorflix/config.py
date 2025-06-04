@@ -34,7 +34,7 @@ class Config(BaseSettings):
             "finney": "wss://entrypoint-finney.opentensor.ai:443",
             "testnet": "wss://test.finney.opentensor.ai:443",
         }[self.subtensor_network]
-    
+
     def get_signature_post(self, hotkey: str) -> str:
         return f"Made with @infinitevibe.ai on #bittensor\n{hotkey[-5:]}"
 

@@ -28,7 +28,10 @@ class Performance(BaseModel):
         score = 0.0
         for interval_key in sorted(self.platform_metrics_by_interval):
             metric = self.platform_metrics_by_interval[interval_key]
-            if metric.check_signature(self.hotkey) and metric.ai_score > CONFIG.ai_generated_score_threshold:
+            if (
+                metric.check_signature(self.hotkey)
+                and metric.ai_score > CONFIG.ai_generated_score_threshold
+            ):
                 score = metric.to_scalar() * alpha + score * (1 - alpha)
             else:
                 score = 0.0

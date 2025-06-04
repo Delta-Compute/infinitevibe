@@ -30,6 +30,7 @@ class TensorFlixValidator:
         "subtensor",
         "metagraph",
         "netuid",
+        "_active_content_ids",
         "_uid_of_hotkey",
         "_submissions",
         "_performances",
@@ -51,6 +52,7 @@ class TensorFlixValidator:
         self._uid_of_hotkey: dict[str, int] = {
             hk: int(uid) for hk, uid in zip(metagraph.hotkeys, metagraph.uids)
         }
+        self._active_content_ids: set[str] = set()
 
         db = db_client["tensorflix"]
         self._submissions: AsyncIOMotorCollection = db["submissions"]
@@ -75,11 +77,14 @@ class TensorFlixValidator:
             for hk, commit in commitments.items()
             if hk in self._uid_of_hotkey
         ]
-        logger.info(f"commitments_fetched, peers-sample: {[p for p in peers[:5] if len(p.submissions) > 0]}")
+        logger.info(
+            f"commitments_fetched, peers-sample: {[p for p in peers[:5] if len(p.submissions) > 0]}"
+        )
         return peers
 
     async def _refresh_peer_submissions(self, peer: PeerMetadata) -> None:
         await peer.update_submissions()
+        self._active_content_ids.update((sub.content_id for sub in peer.submissions))
 
         if not peer.submissions:
             await self._submissions.delete_many({"hotkey": peer.hotkey})
@@ -104,11 +109,18 @@ class TensorFlixValidator:
 
     # ─────────────────── Metrics ────────────────
     async def _fetch_metrics(self, sub: Submission) -> Metric | None:
-        url = f"{CONFIG.service_platform_tracker_url}/get_metrics/{sub.platform}/{sub.content_id}"
+        url = f"{CONFIG.service_platform_tracker_url}/get_metrics"
         try:
-            async with httpx.AsyncClient(timeout=32.0) as client:
-                r = await client.get(url)
-                r.raise_for_status()
+            async with httpx.AsyncClient(timeout=64.0) as client:
+                r = await client.post(
+                    url,
+                    json={
+                        "platform": sub.platform.split("/")[0],
+                        "content_type": sub.platform.split("/")[1],
+                        "content_id": sub.content_id,
+                        "get_direct_url": True,
+                    },
+                )
             data = r.json()
             if sub.platform == "youtube/video":
                 return YoutubeVideoMetadata.from_response(data)
@@ -118,14 +130,16 @@ class TensorFlixValidator:
                 raise ValueError(f"Unknown platform: {sub.platform}")
         except Exception as exc:
             logger.error(
-                "metrics_fetch_failed",
+                f"metrics_fetch_failed- {sub.platform} {sub.content_id} - {r.text}",
                 exc_info=exc,
-                extra={"platform": sub.platform, "content_id": sub.content_id},
             )
             return None
 
     async def _update_hotkey_performances(
-        self, hotkey: str, submissions: Iterable[Submission], interval_key: str
+        self,
+        hotkey: str,
+        submissions: Iterable[Submission],
+        interval_key: str,
     ) -> None:
         for sub in submissions:
             perf_doc = await self._performances.find_one(
@@ -145,10 +159,19 @@ class TensorFlixValidator:
             if not sub.checked_for_ai:
                 logger.info(f"Checking for AI in {sub.direct_video_url}")
                 async with httpx.AsyncClient(timeout=32.0) as client:
-                    r = await client.get(f"{CONFIG.service_ai_detector_url}/detect?url={sub.direct_video_url}")
-                    r.raise_for_status()
-                    metric.ai_score = r.json()["mean_ai_generated"]
-                    sub.checked_for_ai = True
+                    try:
+                        r = await client.post(
+                            f"{CONFIG.service_ai_detector_url}/detect?url={sub.direct_video_url}"
+                        )
+                        metric.ai_score = r.json()["mean_ai_generated"]
+                        sub.checked_for_ai = True
+                    except Exception as exc:
+                        logger.warning(
+                            "ai_detection_failed",
+                            exc_info=exc,
+                            extra={"url": sub.direct_video_url},
+                        )
+                        metric.ai_score = 0.0
                     await self._submissions.update_one(
                         {"hotkey": hotkey, "content_id": sub.content_id},
                         {"$set": {"checked_for_ai": True}},
@@ -165,9 +188,13 @@ class TensorFlixValidator:
                 upsert=True,
             )
 
-    async def update_performance_metrics(self) -> None:
+    async def update_performance_metrics(self, active_content_ids: list[str]) -> None:
         interval_key = datetime.utcnow().strftime("%Y-%m-%d-%H-%M")
-        docs = await self._submissions.find().to_list(None)
+        docs = await self._submissions.find(
+            {"content_id": {"$in": list(active_content_ids)}}
+        ).to_list(None)
+
+        logger.info(f"active submissions: {docs}")
 
         grouped: dict[str, list[Submission]] = defaultdict(list)
         for doc in docs:
@@ -186,12 +213,13 @@ class TensorFlixValidator:
     # ─────────────────── Scoring / Weights ───────
     async def _hotkey_scores(self) -> Dict[str, float]:
         perfs = await self._performances.find().to_list(None)
+        logger.info(f"perfs: {perfs}")
         grouped: dict[str, list[Performance]] = defaultdict(list)
         for doc in perfs:
             grouped[doc["hotkey"]].append(Performance(**doc))
 
         scores = {hk: sum(p.get_score() for p in pl) for hk, pl in grouped.items()}
-        logger.info("scores_computed", extra={"count": len(scores)})
+        logger.info(f"scores: {scores}")
         return scores
 
     async def calculate_and_set_weights(self) -> None:
@@ -249,7 +277,9 @@ class TensorFlixValidator:
             cycle_start = datetime.utcnow()
             try:
                 await self.update_all_submissions()
-                await self.update_performance_metrics()
+                logger.info(f"active content ids: {self._active_content_ids}")
+                await self.update_performance_metrics(self._active_content_ids)
+                self._active_content_ids.clear()
             except Exception as exc:
                 logger.exception("validator_cycle_error", exc_info=exc)
 

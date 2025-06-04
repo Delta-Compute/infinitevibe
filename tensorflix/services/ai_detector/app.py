@@ -40,7 +40,9 @@ def get_random_frames(video_path: str, num_frames: int = 10):
         cap.release()
         raise RuntimeError("No frames in video")
 
-    frame_indices = sorted(random.sample(range(total_frames), min(num_frames, total_frames)))
+    frame_indices = sorted(
+        random.sample(range(total_frames), min(num_frames, total_frames))
+    )
     frames = []
     for idx in frame_indices:
         cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
@@ -99,7 +101,9 @@ def detect(url: str = Query(..., description="URL to video")):
                 finally:
                     os.unlink(img_path)
             if not ai_probs:
-                raise HTTPException(status_code=400, detail="No frames could be analyzed")
+                raise HTTPException(
+                    status_code=400, detail="No frames could be analyzed"
+                )
             mean_prob = sum(ai_probs) / len(ai_probs)
             print(f"Mean prob {mean_prob}")
             return DetectResult(mean_ai_generated=mean_prob, per_frame=ai_probs)
