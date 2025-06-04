@@ -2,7 +2,7 @@
 
 InfiniteVibe is an AI‐driven video and media studio putting Bittensor at the frontier of AI-Generated video production. 
 
-Miners respond to tasks and create AI Generative video using any model or means at their own disposal. Miner scoring and emissions are determined by real world user feedback e.g. paying for the SN output or views/engagement. As a way to grow awareness and attract the worlds best creatives to SN89, the SN will first reward miners based on submissions engagement on the miner's own social media profiles. We will funnel traffic to infinitevibe.ai and tensorflix.ai - where a Beta list of organic tasks is being populated waiting for the SN reach quality output.
+Miners respond to tasks and create AI-generated videos using any model or means at their own disposal. Miner scoring and emissions are determined by real world user feedback e.g. paying for the SN output or views/engagement. As a way to grow awareness and attract the world's best creatives to SN89, the SN will first reward miners based on submissions engagement on the miner's own social media profiles. We will funnel traffic to infinitevibe.ai and tensorflix.ai - where a Beta list of organic tasks is being populated waiting for the SN reach quality output.
 
 Validators act as editor/producers, ensuring that miner quality progresses to the highest levels. Our near-term goal is to align Validators closely with creators, and as such Miners will be expected to post collateral - and jointly this entities can produce and monetize high quality media and perhpas full length series and film. 
 
@@ -18,7 +18,7 @@ Starting with bite-size creative tasks, InfiniteVibe creative network will fine 
 
 InfiniteVibe implements a decentralized content creation and validation pipeline:
 - **Miners** submit video content to the SN and post the content on social media, and eventually the TensorFlix website
-- **Validator**  score submissions by their engagement on the video traffic. Validators also: verify content is 100% AI generated, zero illicit content, traffic is real/not bots. 
+- **Validator**  score submissions by their engagement on the video traffic. Validators also: verify content is 100% AI generated, zero illicit or hate speech, traffic is from real humans and not bots. 
 - **Coordination** happens through Bittensor blockchain and GitHub gists
 
 ## Quick Start
