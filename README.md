@@ -8,7 +8,7 @@ Validators act as editor/producers, ensuring that miner quality progresses to th
 
 ## Creative Direction
 
-Our goal is to give miners as much creative freedom as possible. This will be especially evident at the start of the project when only a few guardrails will be present and the focus is on viralization of Subnet 89 and Bittensor. Again our goal at launch is to cast the broadest net to attract thousands of creatives and notariety from the media industry and drive traffic to our sites. Eventually user generated organic tasks with defined visions will be created for miners and winners will be those who make the best interpretation. 
+Our goal is to give miners as much creative freedom as possible. This will be especially evident at the start of the project when only a few guardrails will be present and the focus is on viralization of Subnet 89 and Bittensor. Again our goal at launch is to cast the broadest net to attract thousands of creatives and notariety from the media industry and drive traffic to our sites. Eventually user generated organic tasks with defined visions will be created for miners and winners will be those who make the best interpretation. In summary, we will let the market will drive content creation.
 
 ## Overview
 
