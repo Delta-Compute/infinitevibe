@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import datetime
 from typing import Optional
-from utils import filter_AI_video, filter_caption_video
+from utils import filter_AI_video, filter_caption_video, download_video
 
 
 class InstagramPostMetadata(BaseModel):
@@ -63,7 +63,12 @@ class InstagramPostMetadataRequest(BaseModel):
             "searchLimit": 1,
             "searchType": "hashtag",
         }
-
+    def get_video(self):
+        video_url = f"https://www.instagram.com/reel/{self.content_id}"
+        return download_video(video_url)
+    def get_instagram_metadata(self):
+        #Todo: get metadata from instagram
+        pass
 
 class YoutubeVideoMetadata(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -120,3 +125,10 @@ class YoutubeVideoMetadataRequest(BaseModel):
 
     def get_request_url(self, api_key: str) -> str:
         return f"https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id={self.content_id}&key={api_key}"
+    def get_video(self):
+        video_url = f"https://www.youtube.com/watch?v={self.content_id}"
+        return download_video(video_url)
+        
+    def get_youtube_metadata(self):
+        #Todo: get metadata from youtube
+        pass

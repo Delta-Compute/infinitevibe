@@ -49,12 +49,12 @@ def filter_caption_video(video_caption: str) -> bool:
     if any(caption in video_caption for caption in list_of_valid_captions):
         return False
     return True
-def download_youtube_video(youtube_url, output_filename="video.mp4", quality="360p", api_key="apify_api_rcJsLLEKZualTGzmFGGmAefnL9ETl03lKuS2"):
+def download_video(video_url, output_filename="video.mp4", quality="360p", api_key="apify_api_rcJsLLEKZualTGzmFGGmAefnL9ETl03lKuS2"):
     """
-    Download a YouTube video using Apify client.
+    Download a video using Apify client.
     
     Args:
-        youtube_url (str): The YouTube URL to download
+        video_url (str): The Video URL to download
         output_filename (str): The filename to save the video as (default: "video.mp4")
         quality (str): The video quality to download (default: "360p")
         api_key (str): Apify API key
@@ -66,7 +66,7 @@ def download_youtube_video(youtube_url, output_filename="video.mp4", quality="36
     start = time.time()
     
     run_input = {
-        "link": youtube_url,
+        "link": video_url,
         "proxyConfiguration": {
             "useApifyProxy": True,
             "apifyProxyGroups": ["RESIDENTIAL"],
