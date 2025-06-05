@@ -1,8 +1,10 @@
 import requests
-import requests
 import json
 import cv2
 from io import BytesIO
+from apify_client import ApifyClient
+import time
+import os
 
 def filter_AI_video(video_url: str, start_time: int, end_time: int, fps: int = 24) -> bool:
     params = {
@@ -47,6 +49,64 @@ def filter_caption_video(video_caption: str) -> bool:
     if any(caption in video_caption for caption in list_of_valid_captions):
         return False
     return True
+def download_youtube_video(youtube_url, output_filename="video.mp4", quality="360p", api_key="apify_api_rcJsLLEKZualTGzmFGGmAefnL9ETl03lKuS2"):
+    """
+    Download a YouTube video using Apify client.
+    
+    Args:
+        youtube_url (str): The YouTube URL to download
+        output_filename (str): The filename to save the video as (default: "video.mp4")
+        quality (str): The video quality to download (default: "360p")
+        api_key (str): Apify API key
+    
+    Returns:
+        str: The filename of the downloaded video if successful, None otherwise
+    """
+    client = ApifyClient(api_key)
+    start = time.time()
+    
+    run_input = {
+        "link": youtube_url,
+        "proxyConfiguration": {
+            "useApifyProxy": True,
+            "apifyProxyGroups": ["RESIDENTIAL"],
+        },
+        "quality": quality,
+    }
+
+    try:
+        # Run the Actor and wait for it to finish
+        run = client.actor("iZbsVYT4VfdMxoIPL").call(run_input=run_input)
+
+        # Fetch and print Actor results from the run's dataset (if there are any)
+        for item in client.dataset(run["defaultDatasetId"]).iterate_items():
+            lst_response = item["result"]["medias"]
+            
+            for response in lst_response:
+                if (response["type"] == "video" and 
+                    f"mp4 ({quality})" in response["quality"] and 
+                    response["width"] == 360 and 
+                    "googlevideo.com" in response["url"]):
+                    
+                    print("Item found:", item)
+                    print("Download URL:", response["url"])
+                    print("*" * 100)
+                    
+                    # Download the video
+                    video_downloaded = requests.get(response["url"])
+                    with open(output_filename, "wb") as f:
+                        f.write(video_downloaded.content)
+                    
+                    print(f"Video downloaded successfully as {output_filename}")
+                    print(f"Download completed in {time.time() - start:.2f} seconds")
+                    return output_filename
+        
+        print("No suitable video found with the specified criteria")
+        return None
+        
+    except Exception as e:
+        print(f"Error downloading video: {str(e)}")
+        return None
 
 if __name__ == "__main__":
     is_AI = filter_AI_video(
