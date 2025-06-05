@@ -108,6 +108,36 @@ def download_video(video_url, output_filename="video.mp4", quality="360p", api_k
         print(f"Error downloading video: {str(e)}")
         return None
 
+def get_instagram_metadata(instagram_url, api_key="apify_api_rcJsLLEKZualTGzmFGGmAefnL9ETl03lKuS2"):
+    client = ApifyClient(api_key)
+    run_input = {
+        "directUrls": [instagram_url],
+        "resultsType": "posts",
+        "resultsLimit": 200,
+        "searchType": "hashtag",
+        "searchLimit": 1,
+        "addParentData": False,
+    }
+
+    # Run the Actor and wait for it to finish
+    run = client.actor("shu8hvrXbJbY3Eb9W").call(run_input=run_input)
+    
+    for item in client.dataset(run["defaultDatasetId"]).iterate_items():
+        print(item)
+    return item
+
+def get_youtube_metadata(youtube_url, api_key="apify_api_rcJsLLEKZualTGzmFGGmAefnL9ETl03lKuS2"):
+    client = ApifyClient(api_key)
+    run_input = { "url": youtube_url }
+
+    # Run the Actor and wait for it to finish
+    run = client.actor("0zxFBBynDJfsaqghw").call(run_input=run_input)
+
+    # Fetch and print Actor results from the run's dataset (if there are any)
+    for item in client.dataset(run["defaultDatasetId"]).iterate_items():
+        print(item)
+    return item
+
 if __name__ == "__main__":
     is_AI = filter_AI_video(
         video_url="https://pub-a55bd0dbae3c4afd86bd066961ab7d1e.r2.dev/test_10secs.mov",
