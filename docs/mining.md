@@ -120,7 +120,7 @@ Follow these steps to set up your environment and submit your content:
 1. **Clone the Tensorflix Repository**:
 
    ```bash
-   git clone https://github.com/Delta-Compute/tensorflix
+   git clone https://github.com/Delta-Compute/infinitevibe
    ```
 
 
