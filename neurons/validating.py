@@ -37,9 +37,9 @@ async def _bootstrap() -> None:
         },
     )
 
-    mongo_uri = os.getenv("MONGO_URI")
+    mongo_uri = os.getenv("MONGODB_URI")
     if not mongo_uri:
-        logger.critical("MONGO_URI_not_set")
+        logger.critical("MONGODB_URI_not_set")
         raise SystemExit(1)
 
     db_client = AsyncIOMotorClient(mongo_uri)
