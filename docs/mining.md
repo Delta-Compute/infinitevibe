@@ -68,6 +68,9 @@ For more detailed information, refer to GitHub's official documentation on manag
 5. Click on **Create Gist**
 6. Grab the Gist ID from the URL. Example: `https://gist.github.com/your_username/your_gist_id`
 
+<img width="1062" alt="image" src="https://github.com/user-attachments/assets/604a7d7a-d4cb-48f4-9a6e-61cf28569b7a" />
+
+
 ### 3. Cloudflare R2 Bucket and API Credentials
 
 To store and manage your video files, you'll need to set up a Cloudflare R2 bucket and obtain the necessary API credentials:
