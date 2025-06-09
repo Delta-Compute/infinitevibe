@@ -44,7 +44,7 @@ SIGHTENGINE_SECRET=your_sightengine_secret
 1. Clone the repository
 
 ```bash
-git clone https://github.com/Delta-Compute/tensorflix
+git clone https://github.com/Delta-Compute/infinitevibe
 ```
 
 2. Install dependencies
