@@ -170,7 +170,10 @@ def main():
             try:
                 st.session_state["subs"] = load_submissions(api_key, gist_id, file_name)
                 st.session_state.update(
-                    api_key=api_key, gist_id=gist_id, file_name=file_name
+                    api_key=api_key,
+                    gist_id=gist_id,
+                    file_name=file_name,
+                    data_loaded=True,
                 )
                 st.success("Submissions loaded.")
             except Exception as exc:
@@ -216,36 +219,40 @@ def main():
                 st.session_state["r2_authenticated"] = False
 
     # Guard – no data until loaded
-    subs: List[Submission] = st.session_state.get("subs", [])
-    if not subs:
+    if not st.session_state.get("data_loaded", False):
         st.info("No data loaded yet – enter credentials and click **Load / refresh**.")
         st.stop()
+
+    subs: List[Submission] = st.session_state.get("subs", [])
 
     # ---------------- Table of current submissions ----------------
     st.subheader("Current submissions")
 
-    col_cfg = [2, 3, 5, 1]  # flex columns width
-    hdr = st.columns(col_cfg)
-    hdr[0].markdown("**Platform**")
-    hdr[1].markdown("**Content ID**")
-    hdr[2].markdown("**Direct video URL**")
-    hdr[3].markdown("**Actions**")
+    if not subs:
+        st.info("No submissions yet. Add your first submission below!")
+    else:
+        col_cfg = [2, 3, 5, 1]  # flex columns width
+        hdr = st.columns(col_cfg)
+        hdr[0].markdown("**Platform**")
+        hdr[1].markdown("**Content ID**")
+        hdr[2].markdown("**Direct video URL**")
+        hdr[3].markdown("**Actions**")
 
-    for idx, sub in enumerate(subs):
-        c1, c2, c3, c4 = st.columns(col_cfg)
-        c1.write(sub.platform)
-        c2.write(sub.content_id)
-        c3.write(sub.direct_video_url)
-        if c4.button("🗑️", key=f"del-{idx}"):  # delete row
-            subs.pop(idx)
-            save_submissions(
-                st.session_state["api_key"],
-                st.session_state["gist_id"],
-                st.session_state["file_name"],
-                subs,
-            )
-            st.session_state["subs"] = subs
-            st.experimental_rerun()
+        for idx, sub in enumerate(subs):
+            c1, c2, c3, c4 = st.columns(col_cfg)
+            c1.write(sub.platform)
+            c2.write(sub.content_id)
+            c3.write(sub.direct_video_url)
+            if c4.button("🗑️", key=f"del-{idx}"):  # delete row
+                subs.pop(idx)
+                save_submissions(
+                    st.session_state["api_key"],
+                    st.session_state["gist_id"],
+                    st.session_state["file_name"],
+                    subs,
+                )
+                st.session_state["subs"] = subs
+                st.experimental_rerun()
 
     st.divider()
 
