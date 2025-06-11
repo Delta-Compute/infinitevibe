@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 from typing import List
 from starlette.responses import JSONResponse
+from loguru import logger
 
 SIGHTENGINE_USER = os.getenv("SIGHTENGINE_USER")
 SIGHTENGINE_SECRET = os.getenv("SIGHTENGINE_SECRET")
@@ -83,20 +84,20 @@ def query_sightengine(image_path: str):
 
 @app.post("/detect", response_model=DetectResult)
 def detect(url: str = Query(..., description="URL to video")):
-    print(f"Detecting {url}")
+    logger.info(f"Detecting {url}")
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_video:
         try:
             download_video(url, tmp_video.name)
-            print(f"Downloaded video to {tmp_video.name}")
+            logger.info(f"Downloaded video to {tmp_video.name}")
             frames = get_random_frames(tmp_video.name, 10)
-            print(f"Got {len(frames)} frames")
+            logger.info(f"Got {len(frames)} frames")
             ai_probs = []
             for frame in frames:
                 img_path = save_temp_image(frame)
                 print(f"Saved image to {img_path}")
                 try:
                     prob = query_sightengine(img_path)
-                    print(f"Got prob {prob}")
+                    logger.info(f"Got prob {prob}")
                     ai_probs.append(prob)
                 except Exception as e:
                     logger.error(f"Got error: {e}")
@@ -107,7 +108,7 @@ def detect(url: str = Query(..., description="URL to video")):
                 mean_prob = 0.969
             else:
                 mean_prob = sum(ai_probs) / len(ai_probs)
-            print(f"Mean prob {mean_prob}")
+            logger.info(f"Mean prob {mean_prob}")
             return DetectResult(mean_ai_generated=mean_prob, per_frame=ai_probs)
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
