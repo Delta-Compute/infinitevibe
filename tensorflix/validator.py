@@ -191,7 +191,7 @@ class TensorFlixValidator:
     async def update_performance_metrics(self, active_content_ids: list[str]) -> None:
         interval_key = datetime.utcnow().strftime("%Y-%m-%d-%H-%M")
         docs = await self._submissions.find(
-            {"content_id": {"$in": list(active_content_ids)}}
+            {"submissions.content_id": {"$in": list(active_content_ids)}}
         ).to_list(None)
 
         logger.info(f"active submissions: {docs}")
