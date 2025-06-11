@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import datetime
 from typing import Optional
 from tensorflix.config import CONFIG
-
+from dateutil import parser
 
 def get_platform_link(platform: str, content_id: str, content_type: str) -> str:
     if platform == "youtube":
@@ -52,9 +52,7 @@ class InstagramPostMetadata(BaseModel):
     @classmethod
     def from_response(cls, response: dict) -> "InstagramPostMetadata":
         # Convert timestamp string to datetime
-        response["published_at"] = datetime.strptime(
-            response["published_at"], "%Y-%m-%dT%H:%M:%S"
-        )
+        response["published_at"] = parser.parse(response["published_at"])
         return cls.model_validate(response)
 
     def to_response(self) -> dict:
@@ -104,9 +102,7 @@ class YoutubeVideoMetadata(BaseModel):
     def from_response(cls, response: dict) -> "YoutubeVideoMetadata":
         # Convert timestamp string to datetime
         dt = response.get("published_at") or response.get("date")
-        response["published_at"] = datetime.strptime(
-            dt, "%Y-%m-%dT%H:%M:%S.%fZ"
-        )
+        response["published_at"] = parser.parse(dt)
         return cls.model_validate(response)
 
     def to_response(self) -> dict:
