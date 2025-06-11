@@ -223,38 +223,41 @@ class TensorFlixValidator:
         return scores
 
     async def calculate_and_set_weights(self) -> None:
-        scores = await self._hotkey_scores()
-        if not scores:
-            logger.warning("no_scores_skipping_weight_set")
-            return
-
-        uids, weights = zip(
-            *[
-                (self._uid_of_hotkey[hk], sc)
-                for hk, sc in scores.items()
-                if hk in self._uid_of_hotkey
-            ]
-        )
-
-        uint_uids, uint_weights = (
-            bt.utils.weight_utils.convert_weights_and_uids_for_emit(
-                uids=np.fromiter(uids, dtype=np.int32),
-                weights=np.fromiter(weights, dtype=np.float32),
+        try:
+            scores = await self._hotkey_scores()
+            if not scores:
+                logger.warning("no_scores_skipping_weight_set")
+                return
+    
+            uids, weights = zip(
+                *[
+                    (self._uid_of_hotkey[hk], sc)
+                    for hk, sc in scores.items()
+                    if hk in self._uid_of_hotkey
+                ]
             )
-        )
-
-        result = await self.subtensor.set_weights(
-            wallet=self.wallet,
-            netuid=self.netuid,
-            uids=uint_uids,
-            weights=uint_weights,
-            version_key=CONFIG.version_key,
-        )
-        (
-            logger.success("weights_set_success")
-            if result
-            else logger.error("weights_set_failed")
-        )
+    
+            uint_uids, uint_weights = (
+                bt.utils.weight_utils.convert_weights_and_uids_for_emit(
+                    uids=np.fromiter(uids, dtype=np.int32),
+                    weights=np.fromiter(weights, dtype=np.float32),
+                )
+            )
+            logger.info(f"UIDS: {uint_uids}, WEIGHTS: {uint_weights}")
+            result = await self.subtensor.set_weights(
+                wallet=self.wallet,
+                netuid=self.netuid,
+                uids=uint_uids,
+                weights=uint_weights,
+                version_key=CONFIG.version_key,
+            )
+            (
+                logger.success(f"weights_set_success: {result}")
+                if result[0]
+                else logger.error(f"weights_set_failed: {result}")
+            )
+        except Exception as e:
+            logger.error(f"Got error: {e}")
 
     # ─────────────────── Main loop ───────────────
     async def run(self) -> None:
