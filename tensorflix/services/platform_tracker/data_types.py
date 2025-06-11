@@ -103,8 +103,9 @@ class YoutubeVideoMetadata(BaseModel):
     @classmethod
     def from_response(cls, response: dict) -> "YoutubeVideoMetadata":
         # Convert timestamp string to datetime
+        dt = response["published_at"] or response["date"]
         response["published_at"] = datetime.strptime(
-            response["published_at"], "%Y-%m-%dT%H:%M:%SZ"
+            dt, "%Y-%m-%dT%H:%M:%SZ"
         )
         return cls.model_validate(response)
 
