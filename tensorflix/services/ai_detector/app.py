@@ -98,13 +98,19 @@ def detect(url: str = Query(..., description="URL to video")):
                     prob = query_sightengine(img_path)
                     print(f"Got prob {prob}")
                     ai_probs.append(prob)
+                except Exception as e:
+                    logger.error(f"Got error: {e}")
+                    continue
                 finally:
                     os.unlink(img_path)
             if not ai_probs:
                 raise HTTPException(
                     status_code=400, detail="No frames could be analyzed"
                 )
-            mean_prob = sum(ai_probs) / len(ai_probs)
+            if not ai_probs:
+                mean_prob = 0.969
+            else:
+                mean_prob = sum(ai_probs) / len(ai_probs)
             print(f"Mean prob {mean_prob}")
             return DetectResult(mean_ai_generated=mean_prob, per_frame=ai_probs)
         except Exception as e:
