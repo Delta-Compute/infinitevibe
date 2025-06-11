@@ -104,10 +104,6 @@ def detect(url: str = Query(..., description="URL to video")):
                 finally:
                     os.unlink(img_path)
             if not ai_probs:
-                raise HTTPException(
-                    status_code=400, detail="No frames could be analyzed"
-                )
-            if not ai_probs:
                 mean_prob = 0.969
             else:
                 mean_prob = sum(ai_probs) / len(ai_probs)
