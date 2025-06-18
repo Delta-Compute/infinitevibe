@@ -36,7 +36,7 @@ class Config(BaseSettings):
         }[self.subtensor_network]
 
     def get_signature_post(self, hotkey: str) -> str:
-        return f"Made with @infinitevibe.ai on #bittensor\n{hotkey[-5:]}"
+        return f"Made with @infinitevibe.ai on #bittensor --- {hotkey[-5:]}"
 
 
 CONFIG = Config()

@@ -25,8 +25,8 @@ To participate as a miner and earn rewards, you must:
 1.  **Create/Curate Content:** Produce or find high-quality video or image content suitable for YouTube or Instagram.
 2.  **Include Signature:**
     *   For **YouTube videos**, include the following signature in the video's **description**:
-        `Made with @infinitevibe.ai on #bittensor\n{YOUR_HOTKEY_LAST_5_CHARS}`
-        (e.g., `Made with @infinitevibe.ai on #bittensor\nAbCdE`)
+        `Made with @infinitevibe.ai on #bittensor --- {YOUR_HOTKEY_LAST_5_CHARS}`
+        (e.g., `Made with @infinitevibe.ai on #bittensor --- AbCdE`)
     *   For **Instagram posts/reels**, include the same signature in the **caption**.
     *   This signature is crucial for validators to verify your ownership and participation. The exact format is defined by `CONFIG.get_signature_post(hotkey)`.
 3.  **Publish Content:** Upload your content to YouTube or Instagram.

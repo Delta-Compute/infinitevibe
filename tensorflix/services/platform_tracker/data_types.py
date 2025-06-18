@@ -32,7 +32,7 @@ class InstagramPostMetadata(BaseModel):
     is_comment_disabled: bool = Field(alias="isCommentsDisabled")
     owner_username: str = Field(alias="ownerUsername")
     product_type: str = Field(alias="productType")
-    published_at: datetime
+    published_at: datetime = Field(alias="timestamp")
     type: str
     url: str
     video_duration: int = Field(alias="videoDuration")
@@ -52,7 +52,8 @@ class InstagramPostMetadata(BaseModel):
     @classmethod
     def from_response(cls, response: dict) -> "InstagramPostMetadata":
         # Convert timestamp string to datetime
-        response["published_at"] = parser.parse(response["published_at"])
+        dt = response.get("published_at") or response.get("timestamp")
+        response["published_at"] = parser.parse(dt)
         return cls.model_validate(response)
 
     def to_response(self) -> dict:
@@ -63,7 +64,7 @@ class InstagramPostMetadata(BaseModel):
         return self.video_view_count
 
     def check_signature(self, hotkey: str) -> bool:
-        return CONFIG.get_signature_post(hotkey) in self.caption
+        return CONFIG.get_signature_post(hotkey).lower() in self.caption.lower()
 
 
 class InstagramPostMetadataRequest(BaseModel):
@@ -113,7 +114,7 @@ class YoutubeVideoMetadata(BaseModel):
         return self.view_count
 
     def check_signature(self, hotkey: str) -> bool:
-        return CONFIG.get_signature_post(hotkey) in self.caption
+        return CONFIG.get_signature_post(hotkey).lower() in self.caption.lower()
 
 
 class YoutubeVideoMetadataRequest(BaseModel):

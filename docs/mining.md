@@ -7,8 +7,7 @@ As a miner (AI video creator), your primary responsibilities are:
 1. **Create Engaging AI Video Content**: Produce high-quality AI-generated videos that attract significant impressions. Ensure each video caption includes your signature in the following format:
 
    ```
-   Made with @infinitevibe.ai on #bittensor
-   <your_last_five_characters_of_your_hotkey_ss58_address>
+   Made with @infinitevibe.ai on #bittensor --- <your_last_five_characters_of_your_hotkey_ss58_address>
    ```
 
 
