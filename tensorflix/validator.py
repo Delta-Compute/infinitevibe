@@ -158,7 +158,7 @@ class TensorFlixValidator:
             metric = await self._fetch_metrics(sub)
             if not sub.checked_for_ai:
                 logger.info(f"Checking for AI in {sub.direct_video_url}")
-                async with httpx.AsyncClient(timeout=32.0) as client:
+                async with httpx.AsyncClient(timeout=192.0) as client:
                     try:
                         r = await client.post(
                             f"{CONFIG.service_ai_detector_url}/detect?url={sub.direct_video_url}"
