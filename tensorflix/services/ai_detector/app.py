@@ -25,7 +25,7 @@ class DetectResult(BaseModel):
 
 
 def download_video(url: str, dest_path: str):
-    r = requests.get(url, stream=True, timeout=60)
+    r = requests.get(url, stream=True, timeout=180)
     r.raise_for_status()
     with open(dest_path, "wb") as f:
         shutil.copyfileobj(r.raw, f)
