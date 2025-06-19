@@ -84,6 +84,7 @@ def query_sightengine(image_path: str):
 
 @app.post("/detect", response_model=DetectResult)
 def detect(url: str = Query(..., description="URL to video")):
+    url = url.replace("https://pub-https://pub-", "https://pub-")
     logger.info(f"Detecting {url}")
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_video:
         try:
