@@ -15,7 +15,7 @@ class Config(BaseSettings):
         "instagram/post",
     )
     submission_update_interval: int = Field(60 * 60 * 6, description="seconds")
-    set_weights_interval: int = Field(60 * 10, description="seconds")
+    set_weights_interval: int = Field(60 * 20, description="seconds")
     max_int_weight: int = 65_535
     version_key: int = 0  # bump on scoring-logic changes
     ai_generated_score_threshold: float = 0.3
