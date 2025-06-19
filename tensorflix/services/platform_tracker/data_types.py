@@ -61,7 +61,7 @@ class InstagramPostMetadata(BaseModel):
         return self.model_dump(exclude_none=True, by_alias=False)
 
     def to_scalar(self) -> float:
-        return self.video_view_count
+        return self.video_play_count
 
     def check_signature(self, hotkey: str) -> bool:
         return CONFIG.get_signature_post(hotkey).lower() in self.caption.lower()
