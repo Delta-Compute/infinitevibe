@@ -75,7 +75,7 @@ class TensorFlixValidator:
                 commit=commit,
             )
             for hk, commit in commitments.items()
-            if hk in self._uid_of_hotkey and ":" in commit 
+            if hk in self._uid_of_hotkey and ":" in commit
         ]
         logger.info(
             f"commitments_fetched, peers-sample: {[p for p in peers[:5] if len(p.submissions) > 0]}"
@@ -228,7 +228,7 @@ class TensorFlixValidator:
             if not scores:
                 logger.warning("no_scores_skipping_weight_set")
                 return
-    
+
             uids, weights = zip(
                 *[
                     (self._uid_of_hotkey[hk], sc)
@@ -236,7 +236,7 @@ class TensorFlixValidator:
                     if hk in self._uid_of_hotkey
                 ]
             )
-    
+
             uint_uids, uint_weights = (
                 bt.utils.weight_utils.convert_weights_and_uids_for_emit(
                     uids=np.fromiter(uids, dtype=np.int32),
@@ -279,6 +279,7 @@ class TensorFlixValidator:
         while True:
             cycle_start = datetime.utcnow()
             try:
+                await self.metagraph.sync()
                 await self.update_all_submissions()
                 logger.info(f"active content ids: {self._active_content_ids}")
                 await self.update_performance_metrics(self._active_content_ids)
