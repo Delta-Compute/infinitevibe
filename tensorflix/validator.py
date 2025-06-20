@@ -280,6 +280,10 @@ class TensorFlixValidator:
             cycle_start = datetime.utcnow()
             try:
                 await self.metagraph.sync()
+                self._uid_of_hotkey = {
+                    hk: int(uid)
+                    for hk, uid in zip(self.metagraph.hotkeys, self.metagraph.uids)
+                }
                 await self.update_all_submissions()
                 logger.info(f"active content ids: {self._active_content_ids}")
                 await self.update_performance_metrics(self._active_content_ids)
