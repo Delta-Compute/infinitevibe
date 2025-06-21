@@ -4,6 +4,7 @@ from typing import Optional
 from tensorflix.config import CONFIG
 from dateutil import parser
 
+
 def get_platform_link(platform: str, content_id: str, content_type: str) -> str:
     if platform == "youtube":
         return f"https://www.youtube.com/watch?v={content_id}"
@@ -21,6 +22,7 @@ def get_platform_link(platform: str, content_id: str, content_type: str) -> str:
 
 
 class InstagramPostMetadata(BaseModel):
+    platform_name: str = "instagram/reel"
     model_config = ConfigDict(populate_by_name=True)
     caption: str
     comment_count: int = Field(alias="commentsCount")
@@ -86,6 +88,7 @@ class InstagramPostMetadataRequest(BaseModel):
 
 
 class YoutubeVideoMetadata(BaseModel):
+    platform_name: str = "youtube/video"
     model_config = ConfigDict(populate_by_name=True)
 
     title: str = Field(alias="title")

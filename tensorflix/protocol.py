@@ -28,6 +28,8 @@ class Performance(BaseModel):
         score = 0.0
         for interval_key in sorted(self.platform_metrics_by_interval):
             metric = self.platform_metrics_by_interval[interval_key]
+            if metric.platform_name not in CONFIG.allowed_platforms:
+                continue
             if (
                 metric.check_signature(self.hotkey)
                 and metric.ai_score > CONFIG.ai_generated_score_threshold
