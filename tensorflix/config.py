@@ -11,8 +11,6 @@ class Config(BaseSettings):
     netuid: int = 89
     allowed_platforms: tuple[str, ...] = (
         "youtube/video",
-        "instagram/reel",
-        "instagram/post",
     )
     submission_update_interval: int = Field(60 * 60 * 6, description="seconds")
     set_weights_interval: int = Field(60 * 20, description="seconds")
