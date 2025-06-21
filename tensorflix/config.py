@@ -9,10 +9,8 @@ from pydantic_settings import BaseSettings
 class Config(BaseSettings):
     # ─────────────────── General ────────────────────
     netuid: int = 89
-    allowed_platforms: tuple[str, ...] = (
-        "youtube/video",
-    )
-    submission_update_interval: int = Field(60 * 60 * 6, description="seconds")
+    allowed_platforms: tuple[str] = ("youtube/video",)
+    submission_update_interval: int = Field(60 * 60 * 2, description="seconds")
     set_weights_interval: int = Field(60 * 20, description="seconds")
     max_int_weight: int = 65_535
     version_key: int = 0  # bump on scoring-logic changes
