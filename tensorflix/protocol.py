@@ -78,7 +78,8 @@ class PeerMetadata(BaseModel):
     @model_validator(mode="after")
     def _validate_commit(cls, v: "PeerMetadata") -> "PeerMetadata":
         if ":" not in v.commit:
-            raise ValueError("commit must be in <username>:<gist_id> format")
+            logger.warning(f"commit_format_error: {v.commit}")
+            v.commit = ""
         return v
 
     async def update_submissions(self) -> None:
