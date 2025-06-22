@@ -10,6 +10,7 @@ import httpx
 import numpy as np
 from loguru import logger
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
+from pymongo.errors import DuplicateKeyError
 
 from tensorflix.config import CONFIG
 from tensorflix.protocol import (
@@ -34,6 +35,7 @@ class TensorFlixValidator:
         "_uid_of_hotkey",
         "_submissions",
         "_performances",
+        "_unique_submissions",
     )
 
     # ─────────────────── Init ────────────────────
@@ -57,12 +59,18 @@ class TensorFlixValidator:
         db = db_client["tensorflix"]
         self._submissions: AsyncIOMotorCollection = db["submissions"]
         self._performances: AsyncIOMotorCollection = db["performances"]
+        self._unique_submissions: AsyncIOMotorCollection = db["unique_submissions"]
+
 
         asyncio.get_event_loop().create_task(self._ensure_indexes())
 
     async def _ensure_indexes(self) -> None:
         await self._submissions.create_index("hotkey")
         await self._performances.create_index([("hotkey", 1), ("content_id", 1)])
+        
+        await self._unique_submissions.create_index(
+            [("platform", 1), ("content_id", 1)], unique=True
+        )
 
     # ─────────────────── Submissions ─────────────
     async def _peer_metadata(self) -> list[PeerMetadata]:
@@ -143,6 +151,16 @@ class TensorFlixValidator:
         interval_key: str,
     ) -> None:
         for sub in submissions:
+            claim = await self._unique_submissions.find_one(
+                {"platform": sub.platform, "content_id": sub.content_id}
+            )
+
+            if claim and claim["hotkey"] != hotkey:
+                logger.warning(
+                    f"Duplicate Submission Ignored: Content '{sub.content_id}' already claimed by hotkey {claim['hotkey'][:8]}..."
+                    f"but submitted by {hotkey[:8]}..."
+                )
+                continue  
             perf_doc = await self._performances.find_one(
                 {"hotkey": hotkey, "content_id": sub.content_id}
             )
@@ -188,6 +206,28 @@ class TensorFlixValidator:
                 logger.info(f"AI score: {metric.ai_score}")
             if metric is None:
                 continue
+
+            # Checking if the submission is valid based on signature and AI score
+            is_valid_submission = (
+                metric.check_signature(hotkey)
+                and metric.ai_score > CONFIG.ai_generated_score_threshold
+            )
+            if not claim and is_valid_submission:
+                try:
+                    await self._unique_submissions.insert_one(
+                        {
+                            "platform": sub.platform,
+                            "content_id": sub.content_id,
+                            "hotkey": hotkey,
+                            "claimed_at": datetime.utcnow(),
+                        }
+                    )
+                    logger.success(f"Claim Acquired: Content '{sub.content_id}' claimed by {hotkey[:8]}...")
+                except DuplicateKeyError:
+                    logger.warning(f"Claim Race Condition: Content '{sub.content_id}' was just claimed by another validator. Ignoring.")
+                except Exception as e:
+                    logger.error(f"Failed to claim content '{sub.content_id}' for {hotkey[:8]}... due to {e}")
+
 
             perf.platform_metrics_by_interval[interval_key] = metric
             await self._performances.update_one(

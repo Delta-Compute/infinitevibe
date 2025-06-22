@@ -21,6 +21,7 @@ class Config(BaseSettings):
     service_ai_detector_url: str = "http://localhost:12002"
 
     # ─────────────────── MongoDB  ───────────────────
+    # Need to create Shared MongoDB Atlas Cluster and give its url to validators to replace the default
     mongodb_uri: str = Field(default="mongodb://localhost:27017/", env="MONGODB_URI")
 
     # ─────────────────── Derived helpers ────────────
