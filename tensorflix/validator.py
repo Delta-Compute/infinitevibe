@@ -155,8 +155,15 @@ class TensorFlixValidator:
                     platform_metrics_by_interval={},
                 )
             )
+            try:
+                metric = await self._fetch_metrics(sub)
+            except Exception as exc:
+                logger.error(
+                    f"metrics_fetch_failed - {sub.content_id}",
+                    exc_info=exc,
+                )
+                continue
 
-            metric = await self._fetch_metrics(sub)
             if not sub.checked_for_ai:
                 logger.info(f"Checking for AI in {sub.direct_video_url}")
                 async with httpx.AsyncClient(timeout=192.0) as client:
