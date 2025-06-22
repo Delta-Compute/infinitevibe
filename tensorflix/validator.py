@@ -77,6 +77,7 @@ class TensorFlixValidator:
             for hk, commit in commitments.items()
             if hk in self._uid_of_hotkey and ":" in commit
         ]
+        peers = [p for p in peers if p.commit]
         logger.info(
             f"commitments_fetched, peers-sample: {[p for p in peers[:5] if len(p.submissions) > 0]}"
         )
