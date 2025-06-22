@@ -28,6 +28,8 @@ class Performance(BaseModel):
         score = 0.0
         for interval_key in sorted(self.platform_metrics_by_interval):
             metric = self.platform_metrics_by_interval[interval_key]
+            if metric.platform_name not in CONFIG.allowed_platforms:
+                continue
             if (
                 metric.check_signature(self.hotkey)
                 and metric.ai_score > CONFIG.ai_generated_score_threshold
@@ -76,7 +78,8 @@ class PeerMetadata(BaseModel):
     @model_validator(mode="after")
     def _validate_commit(cls, v: "PeerMetadata") -> "PeerMetadata":
         if ":" not in v.commit:
-            raise ValueError("commit must be in <username>:<gist_id> format")
+            logger.warning(f"commit_format_error: {v.commit}")
+            v.commit = ""
         return v
 
     async def update_submissions(self) -> None:
