@@ -17,6 +17,9 @@ class PlatformTrackerConfig(BaseSettings):
     instagram_actor_id: str = Field(
         default="RB9HEZitC8hIUXAha", env="INSTAGRAM_ACTOR_ID"
     )
+    instagram_follower_count_actor_id: str = Field(
+        default="7RQ4RlfRihUhflQtJ", env="INSTAGRAM_FOLLOWER_COUNT_ACTOR_ID"
+    )
     youtube_actor_id: str = Field(default="h7sDV53CddomktSi5", env="YOUTUBE_ACTOR_ID")
     downloader_actor_id: str = Field(
         default="iZbsVYT4VfdMxoIPL", env="DOWNLOADER_ACTOR_ID"

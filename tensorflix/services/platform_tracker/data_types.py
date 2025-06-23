@@ -41,6 +41,8 @@ class InstagramPostMetadata(BaseModel):
     video_play_count: int = Field(alias="videoPlayCount")
     video_view_count: int = Field(alias="videoViewCount")
     crawl_video_url: str = Field(alias="videoUrl", default="")
+    owner_follower_count: int = Field(alias="ownerFollowersCount", default=0)
+
 
     ai_score: float = 0.0
 
@@ -99,6 +101,7 @@ class YoutubeVideoMetadata(BaseModel):
     like_count: int = Field(alias="likes")
     comment_count: int = Field(alias="commentsCount")
     crawl_video_url: str = ""
+    owner_follower_count: int = Field(alias="numberOfSubscribers", default=0)
 
     ai_score: float = 0.0
 
