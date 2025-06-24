@@ -1,315 +1,285 @@
-"""
-FastAPI backend replicating Streamlit Submission Manager functionalities.
-
-Expose REST endpoints:
-    GET  /                   Status check
-    GET  /health             Simple health ping
-    POST /git                Configure GitHub gist access and return current submissions
-    PATCH /git               Update GitHub gist configuration
-    POST /r2                 Configure Cloudflare R2 credentials (verifies access)
-    PATCH /r2                Update R2 credentials
-    GET  /submissions        List all submissions stored in the configured gist
-    GET  /submissions/{id}   Retrieve a single submission by content_id
-    DELETE /submissions/{id} Remove a submission and persist changes to the gist
-    POST /submissions/upload-video  Upload a video file to R2 and return the public URL
-
-Run with:
-    uvicorn mining-rest:app --reload
-"""
+# main.py
 from __future__ import annotations
 
-import json
-import time
-import os
-from typing import List, Literal, Optional
+import uuid
+from datetime import datetime, timezone
+from typing import List, Optional, Tuple
 
 import boto3
-import requests
-from botocore.exceptions import ClientError, NoCredentialsError
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
-from loguru import logger
-from pydantic import BaseModel, Field
-from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
-
-GITHUB_API_URL = "https://api.github.com"
-
-app = FastAPI(title="Submission Manager API", version="0.1.0")
-
-# --- CORS (adjust to your needs) ---------------------------------------------------
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
+import httpx
+from botocore.exceptions import ClientError, EndpointConnectionError
+from fastapi import (
+    BackgroundTasks,
+    Body,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
 )
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
-# ----------------------------------------------------------------------------------
-# Pydantic data models
-# ----------------------------------------------------------------------------------
+# ───────────────────── Models ──────────────────────
 
 
 class Submission(BaseModel):
-    """A single content submission."""
-
+    id: str
     content_id: str
-    platform: Literal["youtube/video", "instagram/reel", "instagram/post"]
-    direct_video_url: str
+    platform: str
+    status: str = Field(default="completed")
+    created_at: str
+    file_name: Optional[str] = None  # object key within the R2 bucket
 
-    def __hash__(self) -> int:  # Allow set/dict operations
-        return hash((self.platform, self.content_id))
 
-
-class GitConfig(BaseModel):
-    """Configuration required to access a GitHub Gist."""
-
-    api_key: str = Field(
-        ..., description="GitHub personal access token with *gist* scope"
-    )
+class GistConfig(BaseModel):
     gist_id: str
-    file_name: str = "submissions.jsonl"
+    file_name: str
+    api_key: str | None = None  # allow public gists
 
 
 class R2Config(BaseModel):
-    """Cloudflare R2 credentials and bucket information."""
-
-    account_id: str
-    bucket_name: str
     access_key_id: str
     secret_access_key: str
-    public_link_id: str = Field(
-        ...,
-        description="Used to assemble public URL → https://pub-{public_link_id}.r2.dev/filename",
-    )
+    bucket_name: str
+    account_id: str
+    public_link_id: str
 
 
-# ----------------------------------------------------------------------------------
-# Application‑level state (kept in memory; you can replace with DB/storage)
-# ----------------------------------------------------------------------------------
+# ───────────────── In-memory “storage” ─────────────────
+SUBMISSIONS: dict[str, Submission] = {}
+GIST_CFG: GistConfig | None = None
+R2_CFG: R2Config | None = None
 
-app.state.git_config: Optional[GitConfig] = None
-app.state.r2_config: Optional[R2Config] = None
+# ───────────────── FastAPI app ───────────────────────
+app = FastAPI(title="Video Submission API (stateless demo)", version="1.1.0")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # loosen in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# ----------------------------------------------------------------------------------
-# Helper functions – GitHub Gist
-# ----------------------------------------------------------------------------------
-
-def _gh_request(method: str, url: str, api_key: str, **kwargs):
-    """Wrapper around *requests.request* with GitHub‑specific headers."""
-
-    headers = kwargs.pop("headers", {})
-    headers.setdefault("Accept", "application/vnd.github+json")
-    headers["Authorization"] = f"token {api_key}"
-
-    try:
-        resp = requests.request(method, url, headers=headers, timeout=15, **kwargs)
-    except requests.RequestException as exc:
-        raise HTTPException(status_code=502, detail=f"GitHub network error: {exc}")
-
-    if not resp.ok:
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
-
-    return resp
+# ─────────────── Helpers & probes ────────────────────
 
 
-def load_submissions(cfg: GitConfig) -> List[Submission]:
-    """Fetch and parse the submissions file from the given Gist."""
-
-    gist_url = f"{GITHUB_API_URL}/gists/{cfg.gist_id}"
-    gist_data = _gh_request("GET", gist_url, cfg.api_key).json()
-
-    if cfg.file_name not in gist_data["files"]:
-        return []
-
-    raw_url = gist_data["files"][cfg.file_name]["raw_url"]
-    raw_resp = requests.get(raw_url, timeout=15)
-    raw_resp.raise_for_status()
-
-    submissions: List[Submission] = []
-    for ln, line in enumerate(raw_resp.text.splitlines(), start=1):
-        if not line.strip():
-            continue  # skip blanks
-        try:
-            submissions.append(Submission(**json.loads(line)))
-        except Exception as exc:
-            logger.warning(f"Malformed line {ln}: {exc}")
-
-    return submissions
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def save_submissions(cfg: GitConfig, subs: List[Submission]) -> None:
-    """Persist *subs* back to the Gist (one‑JSON‑per‑line)."""
+async def probe_gist(cfg: GistConfig | None) -> Tuple[bool, str]:
+    if cfg is None:
+        return False, "not configured"
 
-    content = "\n".join(s.model_dump_json(exclude_none=True) for s in subs) + "\n"
-    payload = {"files": {cfg.file_name: {"content": content}}}
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if cfg.api_key:
+        headers["Authorization"] = f"token {cfg.api_key}"
 
-    _gh_request("PATCH", f"{GITHUB_API_URL}/gists/{cfg.gist_id}", cfg.api_key, json=payload)
+    async with httpx.AsyncClient(timeout=8) as client:
+        r = await client.get(
+            f"https://api.github.com/gists/{cfg.gist_id}", headers=headers
+        )
+
+    if r.status_code == 200 and cfg.file_name in r.json().get("files", {}):
+        return True, "ok"
+    if r.status_code == 401:
+        return False, "unauthorised"
+    if r.status_code == 404:
+        return False, "gist/file not found"
+    return False, f"github error {r.status_code}"
 
 
-# ----------------------------------------------------------------------------------
-# Helper functions – Cloudflare R2
-# ----------------------------------------------------------------------------------
+def probe_r2(cfg: R2Config | None) -> Tuple[bool, str]:
+    if cfg is None:
+        return False, "not configured"
 
-def create_r2_client(cfg: R2Config):
-    return boto3.client(
+    endpoint = f"https://{cfg.account_id}.r2.cloudflarestorage.com"
+    s3 = boto3.client(
         "s3",
-        endpoint_url=f"https://{cfg.account_id}.r2.cloudflarestorage.com",
+        endpoint_url=endpoint,
         aws_access_key_id=cfg.access_key_id,
         aws_secret_access_key=cfg.secret_access_key,
-        region_name="auto",
     )
-
-
-def verify_r2(cfg: R2Config) -> bool:
     try:
-        create_r2_client(cfg).head_bucket(Bucket=cfg.bucket_name)
-        return True
-    except (ClientError, NoCredentialsError) as exc:
-        logger.error(f"R2 auth failed: {exc}")
-        return False
+        s3.head_bucket(Bucket=cfg.bucket_name)
+        return True, "ok"
+    except EndpointConnectionError:
+        return False, "endpoint unreachable"
+    except ClientError as e:
+        code = e.response["Error"]["Code"]
+        if code in {"403", "AccessDenied"}:
+            return False, "unauthorised"
+        if code in {"404", "NoSuchBucket"}:
+            return False, "bucket not found"
+        return False, f"r2 error {code}"
 
 
-def upload_to_r2(file_obj, filename: str, cfg: R2Config) -> str:
-    """Upload *filename* to R2 and return its public URL."""
+async def require_storage_ready() -> None:
+    gist_ok, _ = await probe_gist(GIST_CFG)
+    r2_ok, _ = probe_r2(R2_CFG)
+    if not (gist_ok and r2_ok):
+        raise HTTPException(
+            status_code=503,
+            detail="Storage back-ends unavailable — see /health",
+        )
 
-    client = create_r2_client(cfg)
-    client.upload_fileobj(
-        file_obj, cfg.bucket_name, filename, ExtraArgs={"ContentType": "video/mp4"}
+
+def _r2_client():
+    if R2_CFG is None:
+        raise RuntimeError("R2 not configured")
+    return boto3.client(
+        "s3",
+        endpoint_url=f"https://{R2_CFG.account_id}.r2.cloudflarestorage.com",
+        aws_access_key_id=R2_CFG.access_key_id,
+        aws_secret_access_key=R2_CFG.secret_access_key,
     )
-    return f"https://pub-{cfg.public_link_id}.r2.dev/{filename}"
 
 
-# ----------------------------------------------------------------------------------
-# Dependency helpers – ensure configuration exists before handling requests
-# ----------------------------------------------------------------------------------
+# ─────────────────── Endpoints ───────────────────────
 
-def require_git_config() -> GitConfig:
-    if app.state.git_config is None:
-        raise HTTPException(
-            HTTP_400_BAD_REQUEST, "Git configuration not set. Call POST /git first."
-        )
-    return app.state.git_config
+# ── HEALTH ───────────────────────────────────────────
 
 
-def require_r2_config() -> R2Config:
-    if app.state.r2_config is None:
-        raise HTTPException(
-            HTTP_400_BAD_REQUEST, "R2 configuration not set. Call POST /r2 first."
-        )
-    return app.state.r2_config
-
-
-# ----------------------------------------------------------------------------------
-# API endpoints
-# ----------------------------------------------------------------------------------
-
-
-@app.get("/", summary="Status Check")
-async def root():
-    return {"status": "ok", "message": "Submission Manager API is running"}
-
-
-@app.get("/health", summary="Health Check")
+@app.get("/health", tags=["Health"])
 async def health():
-    # You can expand this with deeper dependency checks (e.g. Bittensor ping)
-    return {"healthy": True}
+    gist_ok, gist_msg = await probe_gist(GIST_CFG)
+    r2_ok, r2_msg = probe_r2(R2_CFG)
+    return {
+        "status": "healthy" if gist_ok and r2_ok else "degraded",
+        "gist": {"ok": gist_ok, "detail": gist_msg},
+        "r2": {"ok": r2_ok, "detail": r2_msg},
+    }
 
 
-# ---- GitHub gist configuration ----------------------------------------------------
+# ── STORAGE CONFIG ───────────────────────────────────
 
 
-@app.post("/git", response_model=List[Submission], summary="Configure GitHub Gist access")
-async def configure_git(cfg: GitConfig):
-    """Verify credentials, store them in memory and return current submissions."""
+@app.post("/git", status_code=200, tags=["Storage"])
+async def cfg_gist(cfg: GistConfig = Body(...)):
+    ok, msg = await probe_gist(cfg)
+    if not ok:
+        raise HTTPException(status_code=401, detail=f"Gist check failed: {msg}")
 
-    subs = load_submissions(cfg)
-    app.state.git_config = cfg
-    return subs
-
-
-@app.get("/git", summary="Get GitHub Gist credentials")
-async def get_git(cfg: GitConfig = Depends(require_git_config)):
-    return cfg
+    global GIST_CFG
+    GIST_CFG = cfg
+    return {"status": "ok", "message": "Gist verified 🚀"}
 
 
-@app.patch("/git", summary="Update GitHub Gist credentials")
-async def update_git(cfg: GitConfig = Depends(require_git_config)):
-    app.state.git_config = cfg
-    return {"detail": "Git configuration updated"}
+@app.post("/r2", status_code=200, tags=["Storage"])
+def cfg_r2(cfg: R2Config):
+    ok, msg = probe_r2(cfg)
+    if not ok:
+        raise HTTPException(status_code=401, detail=f"R2 check failed: {msg}")
+
+    global R2_CFG
+    R2_CFG = cfg
+    return {"status": "ok", "message": "R2 bucket verified ✅"}
 
 
-# ---- Cloudflare R2 configuration --------------------------------------------------
-
-@app.get('/r2', summary='Get R2 credentials')
-async def get_r2(cfg: R2Config = Depends(require_r2_config)):
-    return cfg
+# ── SUBMISSIONS ──────────────────────────────────────
 
 
-@app.post("/r2", summary="Configure R2 credentials")
-async def configure_r2(cfg: R2Config):
-    if not verify_r2(cfg):
-        raise HTTPException(HTTP_400_BAD_REQUEST, "R2 authentication failed")
-    app.state.r2_config = cfg
-    return {"detail": "R2 authentication successful"}
+@app.get(
+    "/submissions",
+    response_model=List[Submission],
+    tags=["Submissions"],
+    dependencies=[Depends(require_storage_ready)],
+)
+def list_submissions():
+    return list(SUBMISSIONS.values())
 
 
-@app.patch("/r2", summary="Update R2 credentials")
-async def update_r2(cfg: R2Config):
-    app.state.r2_config = cfg
-    return {"detail": "R2 configuration updated"}
+@app.post(
+    "/submissions/upload-video",
+    status_code=201,
+    response_model=Submission,
+    tags=["Submissions"],
+    dependencies=[Depends(require_storage_ready)],
+)
+async def upload_video(
+    content_id: str = Form(...),
+    platform: str = Form(...),
+    video_file: UploadFile = File(...),
+):
+    sub_id = uuid.uuid4().hex
+    submission = Submission(
+        id=sub_id,
+        content_id=content_id,
+        platform=platform,
+        status="processing",
+        created_at=_now_iso(),
+        file_name=video_file.filename,
+    )
+    SUBMISSIONS[sub_id] = submission
+
+    try:
+        s3 = _r2_client()
+        key = f"{sub_id}/{video_file.filename}"
+        video_file.file.seek(0)
+        s3.upload_fileobj(video_file.file, R2_CFG.bucket_name, key)
+        submission.status = "completed"
+        submission.file_name = key
+    except Exception as exc:  # noqa: BLE001
+        submission.status = "failed"
+        print("Upload error:", exc)
+    finally:
+        await video_file.close()
+    return submission
 
 
-# ---- Submission CRUD --------------------------------------------------------------
-
-
-@app.get("/submissions", response_model=List[Submission], summary="List submissions")
-async def list_submissions(git: GitConfig = Depends(require_git_config)):
-    return load_submissions(git)
+def _finish_upload(file: UploadFile, sub_id: str):
+    """Stream the file straight into Cloudflare R2."""
+    s3 = _r2_client()
+    key = f"{sub_id}/{file.filename}"
+    try:
+        file.file.seek(0)
+        s3.upload_fileobj(file.file, R2_CFG.bucket_name, key)
+        SUBMISSIONS[sub_id].status = "completed"
+        SUBMISSIONS[sub_id].file_name = key
+    except Exception:  # noqa: BLE001
+        SUBMISSIONS[sub_id].status = "failed"
+    finally:
+        file.file.close()
 
 
 @app.get(
     "/submissions/{submission_id}",
     response_model=Submission,
-    summary="Get a single submission",
+    tags=["Submissions"],
+    dependencies=[Depends(require_storage_ready)],
 )
-async def get_submission(submission_id: str, git: GitConfig = Depends(require_git_config)):
-    for sub in load_submissions(git):
-        if sub.content_id == submission_id:
-            return sub
-    raise HTTPException(HTTP_404_NOT_FOUND, "Submission not found")
+def get_submission(submission_id: str):
+    sub = SUBMISSIONS.get(submission_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    return sub
 
 
-@app.delete("/submissions/{submission_id}", summary="Delete submission")
-async def delete_submission(submission_id: str, git: GitConfig = Depends(require_git_config)):
-    subs = load_submissions(git)
-    remaining = [s for s in subs if s.content_id != submission_id]
-    if len(remaining) == len(subs):
-        raise HTTPException(HTTP_404_NOT_FOUND, "Submission not found")
-
-    save_submissions(git, remaining)
-    return {"detail": "Submission deleted"}
-
-
-# ---- File upload ------------------------------------------------------------------
-
-
-@app.post(
-    "/submissions/upload-video",
-    response_model=str,
-    summary="Upload video file to R2 and return public URL",
+@app.delete(
+    "/submissions/{submission_id}",
+    status_code=204,
+    tags=["Submissions"],
+    dependencies=[Depends(require_storage_ready)],
 )
-async def upload_video(
-    file: UploadFile = File(...),
-    r2: R2Config = Depends(require_r2_config),
-):
-    """Store *file* in the configured R2 bucket and return its public URL."""
+def delete_submission(submission_id: str):
+    if SUBMISSIONS.pop(submission_id, None) is None:
+        raise HTTPException(status_code=404, detail="Submission not found")
 
-    filename = f"videos/{int(time.time())}_{file.filename}"
+    # best-effort delete from R2
     try:
-        url = upload_to_r2(file.file, filename, r2)
-        return url
-    except Exception as exc:
-        logger.error(f"Upload failed: {exc}")
-        raise HTTPException(502, f"Upload failed: {exc}")
+        s3 = _r2_client()
+        prefix = f"{submission_id}/"
+        resp = s3.list_objects_v2(Bucket=R2_CFG.bucket_name, Prefix=prefix)
+        for obj in resp.get("Contents", []):
+            s3.delete_object(Bucket=R2_CFG.bucket_name, Key=obj["Key"])
+    except Exception:  # noqa: BLE001
+        pass  # ignore – deletion is optional
 
 
 # ----------------------------------------------------------------------------------
