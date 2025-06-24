@@ -203,7 +203,17 @@ class TensorFlixValidator:
         """
         logger.info("Calculating engagement rates for all active miners.")
         engagement_rates = {}
-        active_hotkeys = [hk for hk in self.metagraph.hotkeys if self.metagraph.S[self._uid_of_hotkey.get(hk, -1)] > 0]
+        active_hotkeys = []
+
+        # Discarding validators from calculation
+        for uid, hotkey in enumerate(self.metagraph.hotkeys):
+            is_active_miner = (
+                self.metagraph.S[uid] > 0 and not self.metagraph.validator_permit[uid]
+            )
+            if is_active_miner:
+                active_hotkeys.append(hotkey)
+        
+        logger.info(f"Found {len(active_hotkeys)} active miners to evaluate (validators excluded).")
 
         for hotkey in active_hotkeys:
             perf_docs = await self._performances.find({"hotkey": hotkey}).to_list(None)
