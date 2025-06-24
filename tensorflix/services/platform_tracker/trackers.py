@@ -81,6 +81,7 @@ class InstagramTracker(PlatformTracker):
     def __init__(self, apify_client: ApifyClientAsync):
         self.apify_client = apify_client
         self.actor_id = config.instagram_actor_id
+        self.follower_count_actor_id = config.instagram_follower_count_actor_id
 
     async def get_metadata(self, content_id: str) -> InstagramPostMetadata:
         """Get Instagram post metadata."""
@@ -91,9 +92,27 @@ class InstagramTracker(PlatformTracker):
 
         run = await self.apify_client.actor(self.actor_id).call(run_input=apify_payload)
         response = await self.apify_client.dataset(run["defaultDatasetId"]).list_items()
+        post_data = response.items[0]
+        owner_username = post_data.get("ownerUsername")
 
-        logger.info(response.items[0])
-        metadata = InstagramPostMetadata.from_response(response.items[0])
+        follower_count = 0 
+        if owner_username:
+            logger.info(f"Getting follower count for owner: {owner_username}")
+            try:
+                follower_payload = {"usernames": [owner_username]}
+                
+                follower_run = await self.apify_client.actor(self.follower_count_actor_id).call(run_input=follower_payload)
+                follower_response = await self.apify_client.dataset(follower_run["defaultDatasetId"]).list_items()
+                if follower_response.items:
+                    follower_count = follower_response.items[0].get("followerCount", 0)
+
+            except Exception as e:
+                logger.error(f"Failed to fetch follower count for {owner_username}: {e}")
+        
+        post_data["ownerFollowersCount"] = follower_count
+
+        logger.info(post_data)
+        metadata = InstagramPostMetadata.from_response(post_data)
         return metadata
 
     def get_supported_content_types(self) -> list[str]:

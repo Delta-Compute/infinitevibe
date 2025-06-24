@@ -196,6 +196,53 @@ class TensorFlixValidator:
                 upsert=True,
             )
 
+    async def _calculate_miner_engagement_rates(self) -> dict[str, float]:
+        """
+        Calculates the average engagement rate for each active miner.
+        Returns a dictionary mapping hotkey to its engagement rate.
+        """
+        logger.info("Calculating engagement rates for all active miners.")
+        engagement_rates = {}
+        active_hotkeys = [hk for hk in self.metagraph.hotkeys if self.metagraph.S[self._uid_of_hotkey.get(hk, -1)] > 0]
+
+        for hotkey in active_hotkeys:
+            perf_docs = await self._performances.find({"hotkey": hotkey}).to_list(None)
+            if not perf_docs:
+                engagement_rates[hotkey] = 0
+                continue
+            
+            total_likes, total_comments, follower_count, valid_posts = 0.0, 0.0, 0, 0
+
+            for doc in perf_docs:
+                perf = Performance(**doc)
+                if not perf.platform_metrics_by_interval: 
+                    continue
+                    
+                latest_metric = perf.platform_metrics_by_interval[sorted(perf.platform_metrics_by_interval.keys())[-1]]
+                
+                if hasattr(latest_metric, 'owner_follower_count') and latest_metric.owner_follower_count > 0:
+                    follower_count = latest_metric.owner_follower_count
+
+                is_valid = (
+                    latest_metric.check_signature(hotkey) 
+                    and latest_metric.ai_score > CONFIG.ai_generated_score_threshold
+                )
+                if not is_valid: 
+                    continue
+
+                total_likes += latest_metric.like_count
+                total_comments += latest_metric.comment_count
+                valid_posts += 1
+
+            if valid_posts > 0 and follower_count > 0:
+                avg_engagement = (total_likes + total_comments) / valid_posts
+                rate = (avg_engagement / follower_count) * 100
+                engagement_rates[hotkey] = rate
+            else:
+                engagement_rates[hotkey] = 0
+
+        return engagement_rates
+
     async def update_performance_metrics(self, active_content_ids: list[str]) -> None:
         interval_key = datetime.utcnow().strftime("%Y-%m-%d-%H-%M")
         docs = await self._submissions.find(
@@ -231,41 +278,55 @@ class TensorFlixValidator:
         return scores
 
     async def calculate_and_set_weights(self) -> None:
+        """
+        Ranks miners by engagement rate, selects the top 5, and sets weights based on
+        their content engagement scores.
+        """
         try:
-            scores = await self._hotkey_scores()
-            if not scores:
-                logger.warning("no_scores_skipping_weight_set")
+            logger.info("Starting weight calculation based on Top 5 Engagement Rate ranking.")
+            
+            # Calculate engagement rate for all miners to use for ranking.
+            engagement_rates = await self._calculate_miner_engagement_rates()
+            if not engagement_rates:
+                logger.warning("No engagement rates calculated. Skipping weight set.")
                 return
 
-            uids, weights = zip(
-                *[
-                    (self._uid_of_hotkey[hk], sc)
-                    for hk, sc in scores.items()
-                    if hk in self._uid_of_hotkey
-                ]
-            )
+            sorted_miners = sorted(engagement_rates.items(), key=lambda item: item[1], reverse=True)
+            top_5_hotkeys = {hk for hk, _ in sorted_miners[:5]}
+            logger.info(f"Top 5 miners by engagement rate: {[m[:8] for m in top_5_hotkeys]}")
+            all_content_scores = await self._hotkey_scores()
+            scores_for_weights = {hk: score for hk, score in all_content_scores.items() if hk in top_5_hotkeys}
+            uids, weights = [], []
+            for uid, hotkey in enumerate(self.metagraph.hotkeys):
+                uids.append(uid)    
+                weights.append(scores_for_weights.get(hotkey, 0.0))
 
-            uint_uids, uint_weights = (
-                bt.utils.weight_utils.convert_weights_and_uids_for_emit(
-                    uids=np.fromiter(uids, dtype=np.int32),
-                    weights=np.fromiter(weights, dtype=np.float32),
-                )
+            #Normalize weights and set them on the subnet.
+            weights_array = np.array(weights, dtype=np.float32)
+            if np.sum(weights_array) > 0:
+                weights_array /= np.sum(weights_array) # Normalize so weights sum to 1
+
+            uint_uids, uint_weights = bt.utils.weight_utils.convert_weights_and_uids_for_emit(
+                uids=np.array(uids, dtype=np.int32),
+                weights=weights_array,
             )
-            logger.info(f"UIDS: {uint_uids}, WEIGHTS: {uint_weights}")
+            
+            logger.info(f"Setting weights. UIDS: {uint_uids}, WEIGHTS: {uint_weights}")
             result = await self.subtensor.set_weights(
-                wallet=self.wallet,
-                netuid=self.netuid,
+                wallet=self.wallet, 
+                netuid=self.netuid, 
                 uids=uint_uids,
-                weights=uint_weights,
+                weights=uint_weights, 
                 version_key=CONFIG.version_key,
             )
-            (
+            
+            if result and result[0]:
                 logger.success(f"weights_set_success: {result}")
-                if result[0]
-                else logger.error(f"weights_set_failed: {result}")
-            )
+            else:
+                logger.error(f"weights_set_failed: {result}")
+        
         except Exception as e:
-            logger.error(f"Got error: {e}")
+            logger.error(f"Error during weight setting: {e}")
 
     # ─────────────────── Main loop ───────────────
     async def run(self) -> None:
