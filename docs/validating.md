@@ -74,3 +74,9 @@ pm2 start --name "tensorflix-validator" "python -m neurons.validating \
 --wallet-name <your_wallet_name> \
 --subtensor-network finney"
 ```
+
+5. Run script that upgrade the validator automatically
+
+```bash
+pm2 start validator_upgrade.sh --name tensorflix-vali-updater --cron "0/30 * * * *" --interpreter /bin/bash --no-autorestart
+```
