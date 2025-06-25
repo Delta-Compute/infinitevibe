@@ -12,8 +12,11 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from tensorflix.config import CONFIG
 from tensorflix.validator import TensorFlixValidator
 from dotenv import load_dotenv
+import wandb
 
 load_dotenv()
+
+wandb.init(project="infinitevibe-subnet")
 
 
 async def _bootstrap() -> None:

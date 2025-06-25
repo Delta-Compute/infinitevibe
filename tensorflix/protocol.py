@@ -25,21 +25,115 @@ class Performance(BaseModel):
     platform_metrics_by_interval: dict[str, Metric]
 
     def get_score(self, *, alpha: float = 0.95) -> float:
+        logger.info(f"🔗 Starting EMA chain calculation for hotkey: {self.hotkey}")
+        logger.info(f"📊 Alpha (smoothing factor): {alpha}")
+        logger.info(f"📈 Total intervals to process: {len(self.platform_metrics_by_interval)}")
+        
         score = 0.0
+        prev_metric_value = None
+        processed_intervals = 0
+        skipped_intervals = 0
+        reset_count = 0
+        
+        # Track EMA evolution
+        ema_history = []
+        
         for interval_key in sorted(self.platform_metrics_by_interval):
             metric = self.platform_metrics_by_interval[interval_key]
+            
+            logger.info(f"⏰ Processing interval: {interval_key}")
+            logger.info(f"🔧 Platform: {metric.platform_name}")
+            
+            # Check platform allowlist
             if metric.platform_name not in CONFIG.allowed_platforms:
+                logger.info(f"⚠️  Platform '{metric.platform_name}' not in allowed platforms - SKIPPING")
+                skipped_intervals += 1
                 continue
-            if (
-                metric.check_signature(self.hotkey)
-                and metric.ai_score > CONFIG.ai_generated_score_threshold
-            ):
-                score = metric.to_scalar() * alpha + score * (1 - alpha)
+            
+            # Validate metric
+            signature_valid = metric.check_signature(self.hotkey)
+            ai_score_valid = metric.ai_score > CONFIG.ai_generated_score_threshold
+            
+            logger.info(f"✅ Signature valid: {signature_valid}")
+            logger.info(f"🤖 AI score ({metric.ai_score}) > threshold ({CONFIG.ai_generated_score_threshold}): {ai_score_valid}")
+            
+            if signature_valid and ai_score_valid:
+                current_metric_value = metric.to_scalar()
+                logger.info(f"📊 Current metric value: {current_metric_value:.6f}")
+                
+                old_score = score
+                
+                if prev_metric_value is not None:
+                    # Calculate incremental improvement
+                    incremental_score = current_metric_value - prev_metric_value
+                    logger.info(f"📈 Incremental improvement: {incremental_score:.6f}")
+                    logger.info(f"🔄 EMA calculation: {incremental_score:.6f} * {alpha} + {score:.6f} * {1-alpha:.3f}")
+                    
+                    score = incremental_score * alpha + score * (1 - alpha)
+                    
+                    improvement_type = "📈 IMPROVEMENT" if incremental_score > 0 else "📉 DECLINE" if incremental_score < 0 else "➡️  STABLE"
+                    logger.info(f"{improvement_type}: {abs(incremental_score):.6f}")
+                    
+                else:
+                    logger.info(f"🆕 First valid metric - initializing EMA")
+                    logger.info(f"🔄 EMA calculation: {current_metric_value:.6f} * {alpha} + {score:.6f} * {1-alpha:.3f}")
+                    score = current_metric_value * alpha + score * (1 - alpha)
+                
+                # Log EMA evolution
+                score_change = score - old_score
+                logger.info(f"📊 EMA Score: {old_score:.6f} → {score:.6f} (Δ: {score_change:+.6f})")
+                
+                # Track history for trend analysis
+                ema_history.append({
+                    'interval': interval_key,
+                    'metric_value': current_metric_value,
+                    'incremental': incremental_score if prev_metric_value is not None else None,
+                    'ema_score': score,
+                    'score_change': score_change
+                })
+                
+                prev_metric_value = current_metric_value
+                processed_intervals += 1
+                
             else:
+                logger.info(f"❌ Metric validation failed - RESETTING EMA chain")
+                logger.info(f"🔄 Score reset: {score:.6f} → 0.0")
                 score = 0.0
+                prev_metric_value = None
+                reset_count += 1
+                skipped_intervals += 1
+        
+        # Final summary
+        logger.info(f"🏁 EMA Chain Summary:")
+        logger.info(f"   📊 Final EMA Score: {score:.6f}")
+        logger.info(f"   ✅ Processed intervals: {processed_intervals}")
+        logger.info(f"   ⏭️  Skipped intervals: {skipped_intervals}")
+        logger.info(f"   🔄 Chain resets: {reset_count}")
+        logger.info(f"   📈 Chain efficiency: {(processed_intervals / len(self.platform_metrics_by_interval) * 100):.1f}%")
+        
+        # Log trend analysis if we have history
+        if len(ema_history) > 1:
+            logger.info(f"📊 EMA Trend Analysis:")
+            
+            # Calculate trend metrics
+            positive_changes = sum(1 for h in ema_history if h['score_change'] > 0)
+            negative_changes = sum(1 for h in ema_history if h['score_change'] < 0)
+            
+            logger.info(f"   📈 Positive EMA changes: {positive_changes}")
+            logger.info(f"   📉 Negative EMA changes: {negative_changes}")
+            
+            # Show volatility
+            score_changes = [h['score_change'] for h in ema_history]
+            volatility = sum(abs(change) for change in score_changes) / len(score_changes)
+            logger.info(f"   📊 Average volatility: {volatility:.6f}")
+            
+            # Show recent trend (last 3 intervals)
+            recent_changes = score_changes[-3:]
+            recent_trend = sum(recent_changes) / len(recent_changes)
+            trend_direction = "📈 UPWARD" if recent_trend > 0 else "📉 DOWNWARD" if recent_trend < 0 else "➡️  FLAT"
+            logger.info(f"   🎯 Recent trend: {trend_direction} ({recent_trend:+.6f})")
+        
         return score
-
-
 # ────────────────────── Submissions ─────────────────
 
 
