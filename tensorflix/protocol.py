@@ -26,19 +26,33 @@ class Performance(BaseModel):
 
     def get_score(self, *, alpha: float = 0.95) -> float:
         score = 0.0
+        prev_metric_value = None
+        
         for interval_key in sorted(self.platform_metrics_by_interval):
             metric = self.platform_metrics_by_interval[interval_key]
+            
             if metric.platform_name not in CONFIG.allowed_platforms:
                 continue
+                
             if (
                 metric.check_signature(self.hotkey)
                 and metric.ai_score > CONFIG.ai_generated_score_threshold
             ):
-                score = metric.to_scalar() * alpha + score * (1 - alpha)
+                current_metric_value = metric.to_scalar()
+                
+                if prev_metric_value is not None:
+                    # Calculate incremental improvement
+                    incremental_score = current_metric_value - prev_metric_value
+                    score = incremental_score * alpha + score * (1 - alpha)
+                else:
+                    score = current_metric_value * alpha + score * (1 - alpha)
+                
+                prev_metric_value = current_metric_value
             else:
                 score = 0.0
+                prev_metric_value = None
+        
         return score
-
 
 # ────────────────────── Submissions ─────────────────
 
