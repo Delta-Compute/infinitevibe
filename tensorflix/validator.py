@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections import defaultdict
 from datetime import datetime
 from typing import Dict, Iterable, List
@@ -22,6 +23,8 @@ from tensorflix.services.platform_tracker.data_types import (
     YoutubeVideoMetadata,
     InstagramPostMetadata,
 )
+from tabulate import tabulate
+
 
 
 class TensorFlixValidator:
@@ -34,6 +37,7 @@ class TensorFlixValidator:
         "_uid_of_hotkey",
         "_submissions",
         "_performances",
+        "_fetch_metrics_semaphore",
     )
 
     # ─────────────────── Init ────────────────────
@@ -55,9 +59,9 @@ class TensorFlixValidator:
         self._active_content_ids: set[str] = set()
 
         db = db_client["tensorflix"]
-        self._submissions: AsyncIOMotorCollection = db["submissions"]
-        self._performances: AsyncIOMotorCollection = db["performances"]
-
+        self._submissions: AsyncIOMotorCollection = db[f"submissions-{CONFIG.version}"]
+        self._performances: AsyncIOMotorCollection = db[f"performances-{CONFIG.version}"]
+        self._fetch_metrics_semaphore = asyncio.Semaphore(4)
         asyncio.get_event_loop().create_task(self._ensure_indexes())
 
     async def _ensure_indexes(self) -> None:
@@ -66,7 +70,6 @@ class TensorFlixValidator:
 
     # ─────────────────── Submissions ─────────────
     async def _peer_metadata(self) -> list[PeerMetadata]:
-        logger.info(f"chain_fetch_peer_commitments, netuid: {self.netuid}")
         commitments = await self.subtensor.get_all_commitments(netuid=self.netuid)
         peers = [
             PeerMetadata(
@@ -78,50 +81,70 @@ class TensorFlixValidator:
             if hk in self._uid_of_hotkey and ":" in commit
         ]
         peers = [p for p in peers if p.commit]
-        logger.info(
-            f"commitments_fetched, peers-sample: {[p for p in peers[:5] if len(p.submissions) > 0]}"
-        )
         return peers
 
-    async def _refresh_peer_submissions(self, peer: PeerMetadata) -> None:
+    async def _refresh_peer_submissions(self, peer: PeerMetadata) -> dict:
+        """Returns summary stats for this peer's submission refresh"""
         await peer.update_submissions()
         self._active_content_ids.update((sub.content_id for sub in peer.submissions))
 
         if not peer.submissions:
             await self._submissions.delete_many({"hotkey": peer.hotkey})
-            return
+            return {"hotkey": peer.hotkey[:8], "submissions": 0, "action": "deleted"}
 
         await self._submissions.update_one(
             {"hotkey": peer.hotkey},
             {"$set": {"submissions": [s.model_dump() for s in peer.submissions]}},
             upsert=True,
         )
+        return {
+            "hotkey": peer.hotkey[:8], 
+            "submissions": len(peer.submissions),
+            "action": "updated"
+        }
 
     async def update_all_submissions(self) -> None:
         peers = await self._peer_metadata()
         sem = asyncio.Semaphore(32)
+        
+        results = []
 
         async def _guarded(p: PeerMetadata) -> None:
             async with sem:
-                await self._refresh_peer_submissions(p)
+                result = await self._refresh_peer_submissions(p)
+                results.append(result)
 
         await asyncio.gather(*[_guarded(p) for p in peers])
-        logger.success("submissions_update_complete")
+        
+        # Summary logging
+        total_peers = len(peers)
+        total_submissions = sum(r["submissions"] for r in results)
+        active_peers = len([r for r in results if r["submissions"] > 0])
+        
+        logger.info("Submissions Update Complete", extra={
+            "summary": {
+                "total_peers": total_peers,
+                "active_peers": active_peers,
+                "total_submissions": total_submissions,
+                "active_content_ids": len(self._active_content_ids)
+            }
+        })
 
     # ─────────────────── Metrics ────────────────
     async def _fetch_metrics(self, sub: Submission) -> Metric | None:
         url = f"{CONFIG.service_platform_tracker_url}/get_metrics"
         try:
-            async with httpx.AsyncClient(timeout=64.0) as client:
-                r = await client.post(
-                    url,
-                    json={
-                        "platform": sub.platform.split("/")[0],
-                        "content_type": sub.platform.split("/")[1],
-                        "content_id": sub.content_id,
-                        "get_direct_url": True,
-                    },
-                )
+            async with self._fetch_metrics_semaphore:
+                async with httpx.AsyncClient(timeout=64.0) as client:
+                    r = await client.post(
+                        url,
+                        json={
+                            "platform": sub.platform.split("/")[0],
+                            "content_type": sub.platform.split("/")[1],
+                            "content_id": sub.content_id,
+                            "get_direct_url": True,
+                        },
+                    )
             data = r.json()
             if sub.platform == "youtube/video":
                 return YoutubeVideoMetadata.from_response(data)
@@ -130,10 +153,7 @@ class TensorFlixValidator:
             else:
                 raise ValueError(f"Unknown platform: {sub.platform}")
         except Exception as exc:
-            logger.error(
-                f"metrics_fetch_failed- {sub.platform} {sub.content_id} - {r.text}",
-                exc_info=exc,
-            )
+            logger.error(f"Metrics fetch failed for {sub.platform}:{sub.content_id}\n{exc}\n{r.text if r else 'No response'}")
             return None
 
     async def _update_hotkey_performances(
@@ -141,79 +161,86 @@ class TensorFlixValidator:
         hotkey: str,
         submissions: Iterable[Submission],
         interval_key: str,
-    ) -> None:
-        for sub in submissions:
-            perf_doc = await self._performances.find_one(
-                {"hotkey": hotkey, "content_id": sub.content_id}
-            )
-            perf = (
-                Performance(**perf_doc)
-                if perf_doc
-                else Performance(
-                    hotkey=hotkey,
-                    content_id=sub.content_id,
-                    platform_metrics_by_interval={},
-                )
-            )
+    ) -> dict:
+        """Returns summary stats for this hotkey's performance update"""
+        processed = 0
+        ai_checked = 0
+        errors = 0
+        
+        total = len(submissions)
+        index = 1
+        for sub in submissions[:CONFIG.max_submissions_per_hotkey]:
             try:
-                metric = await self._fetch_metrics(sub)
-            except Exception as exc:
-                logger.error(
-                    f"metrics_fetch_failed - {sub.content_id}",
-                    exc_info=exc,
+                perf_doc = await self._performances.find_one(
+                    {"hotkey": hotkey, "content_id": sub.content_id}
                 )
-                continue
-
-            if not sub.checked_for_ai:
-                logger.info(f"Checking for AI in {sub.direct_video_url}")
-                async with httpx.AsyncClient(timeout=192.0) as client:
-                    try:
-                        r = await client.post(
-                            f"{CONFIG.service_ai_detector_url}/detect?url={sub.direct_video_url}"
-                        )
-                        metric.ai_score = r.json()["mean_ai_generated"]
-                        sub.checked_for_ai = True
-                    except Exception as exc:
-                        logger.warning(
-                            "ai_detection_failed",
-                            exc_info=exc,
-                            extra={"url": sub.direct_video_url},
-                        )
-                        metric.ai_score = 0.0
-                    await self._submissions.update_one(
-                        {"hotkey": hotkey, "content_id": sub.content_id},
-                        {"$set": {"checked_for_ai": True}},
-                        upsert=True,
+                perf = (
+                    Performance(**perf_doc)
+                    if perf_doc
+                    else Performance(
+                        hotkey=hotkey,
+                        content_id=sub.content_id,
+                        platform_metrics_by_interval={},
                     )
-                logger.info(f"AI score: {metric.ai_score}")
-            if metric is None:
-                continue
+                )
+                
+                metric = await self._fetch_metrics(sub)
+                if metric is None:
+                    errors += 1
+                    continue
+                
+                logger.info(f"Fetched metrics for {sub.platform}:{sub.content_id}")
 
-            perf.platform_metrics_by_interval[interval_key] = metric
-            await self._performances.update_one(
-                {"hotkey": hotkey, "content_id": sub.content_id},
-                {"$set": perf.model_dump()},
-                upsert=True,
-            )
+                # AI detection check
+                if not sub.checked_for_ai:
+                    async with httpx.AsyncClient(timeout=192.0) as client:
+                        try:
+                            r = await client.post(
+                                f"{CONFIG.service_ai_detector_url}/detect?url={sub.direct_video_url}"
+                            )
+                            metric.ai_score = r.json()["mean_ai_generated"]
+                            sub.checked_for_ai = True
+                            ai_checked += 1
+                        except Exception:
+                            metric.ai_score = 0.0
+                        
+                        await self._submissions.update_one(
+                            {"hotkey": hotkey, "content_id": sub.content_id},
+                            {"$set": {"checked_for_ai": True}},
+                            upsert=True,
+                        )
+
+                perf.platform_metrics_by_interval[interval_key] = metric
+                await self._performances.update_one(
+                    {"hotkey": hotkey, "content_id": sub.content_id},
+                    {"$set": perf.model_dump()},
+                    upsert=True,
+                )
+                processed += 1
+                
+            except Exception as exc:
+                logger.error(f"Performance update failed for {hotkey[:8]}:{sub.content_id}")
+                errors += 1
+
+        return {
+            "hotkey": hotkey[:8],
+            "processed": processed,
+            "ai_checked": ai_checked,
+            "errors": errors
+        }
 
     async def _calculate_miner_engagement_rates(self) -> dict[str, float]:
-        """
-        Calculates the average engagement rate for each active miner.
-        Returns a dictionary mapping hotkey to its engagement rate.
-        """
-        logger.info("Calculating engagement rates for all active miners.")
+        """Calculate engagement rate for all active miners"""
         engagement_rates = {}
         active_hotkeys = []
 
-        # Discarding validators from calculation
+        # Get active miners (excluding validators)
         for uid, hotkey in enumerate(self.metagraph.hotkeys):
             is_active_miner = (
                 self.metagraph.S[uid] > 0 and not self.metagraph.validator_permit[uid]
             )
             if is_active_miner:
                 active_hotkeys.append(hotkey)
-        
-        logger.info(f"Found {len(active_hotkeys)} active miners to evaluate (validators excluded).")
 
         for hotkey in active_hotkeys:
             perf_docs = await self._performances.find({"hotkey": hotkey}).to_list(None)
@@ -259,101 +286,132 @@ class TensorFlixValidator:
             {"submissions.content_id": {"$in": list(active_content_ids)}}
         ).to_list(None)
 
-        logger.info(f"active submissions: {docs}")
-
         grouped: dict[str, list[Submission]] = defaultdict(list)
         for doc in docs:
             grouped[doc["hotkey"]].extend(
                 Submission(**d) for d in doc.get("submissions", [])
             )
+        
+        for k, v in grouped.items():
+            logger.info(f"Hotkey: {k}, Submissions: {len(v)}")
 
-        await asyncio.gather(
-            *[
-                self._update_hotkey_performances(hk, subs, interval_key)
-                for hk, subs in grouped.items()
-            ]
-        )
-        logger.success("performance_update_complete", extra={"interval": interval_key})
+        total_submissions = sum(len(v[:CONFIG.max_submissions_per_hotkey]) for v in grouped.values())
+        logger.info(f"Total submissions: {total_submissions}")
+
+        # Process all hotkeys and collect results
+        tasks = [
+            self._update_hotkey_performances(hk, subs, interval_key)
+            for hk, subs in grouped.items()
+        ]
+        results = await asyncio.gather(*tasks)
+
+        # Summary logging
+        total_processed = sum(r["processed"] for r in results)
+        total_ai_checked = sum(r["ai_checked"] for r in results)
+        total_errors = sum(r["errors"] for r in results)
+        
+        logger.info("Performance Metrics Update Complete", extra={
+            "summary": {
+                "interval": interval_key,
+                "hotkeys_processed": len(results),
+                "total_submissions_processed": total_processed,
+                "ai_detections_performed": total_ai_checked,
+                "errors": total_errors
+            }
+        })
 
     # ─────────────────── Scoring / Weights ───────
     async def _hotkey_scores(self) -> Dict[str, float]:
-        perfs = await self._performances.find().to_list(None)
-        logger.info(f"perfs: {perfs}")
+        perfs = await self._performances.find({"hotkey": {"$in": self.metagraph.hotkeys}}).to_list(None)
         grouped: dict[str, list[Performance]] = defaultdict(list)
         for doc in perfs:
             grouped[doc["hotkey"]].append(Performance(**doc))
 
         scores = {hk: sum(p.get_score() for p in pl) for hk, pl in grouped.items()}
-        logger.info(f"scores: {scores}")
         return scores
 
     async def calculate_and_set_weights(self) -> None:
-        """
-        Ranks miners by engagement rate, selects the top 5, and sets weights based on
-        their content engagement scores.
-        """
+        """Calculate weights based on top 5 engagement rates and set them on subnet"""
         try:
-            logger.info("Starting weight calculation based on Top 5 Engagement Rate ranking.")
-            
-            # Calculate engagement rate for all miners to use for ranking.
+            # Calculate engagement rates for ranking
             engagement_rates = await self._calculate_miner_engagement_rates()
             if not engagement_rates:
-                logger.warning("No engagement rates calculated. Skipping weight set.")
+                logger.warning("No engagement rates calculated - skipping weight update")
                 return
 
+            # Get top 5 miners by engagement rate
             sorted_miners = sorted(engagement_rates.items(), key=lambda item: item[1], reverse=True)
             top_5_hotkeys = {hk for hk, _ in sorted_miners[:5]}
-            logger.info(f"Top 5 miners by engagement rate: {[m[:8] for m in top_5_hotkeys]}")
+            
+            # Get content scores for top miners only
             all_content_scores = await self._hotkey_scores()
-            scores_for_weights = {hk: score for hk, score in all_content_scores.items() if hk in top_5_hotkeys}
+            scores_for_weights = {hk: max(0.0, score) for hk, score in all_content_scores.items() if hk in top_5_hotkeys}
+            
+            # Build weights array
             uids, weights = [], []
             for uid, hotkey in enumerate(self.metagraph.hotkeys):
-                uids.append(uid)    
+                uids.append(uid)
                 weights.append(scores_for_weights.get(hotkey, 0.0))
 
-            #Normalize weights and set them on the subnet.
+            # Normalize weights
             weights_array = np.array(weights, dtype=np.float32)
+            weights_array = np.clip(weights_array, 0, 1)
             if np.sum(weights_array) > 0:
-                weights_array /= np.sum(weights_array) # Normalize so weights sum to 1
+                weights_array /= np.sum(weights_array)
 
             uint_uids, uint_weights = bt.utils.weight_utils.convert_weights_and_uids_for_emit(
                 uids=np.array(uids, dtype=np.int32),
                 weights=weights_array,
             )
+            if np.sum(uint_weights) == 0:
+                logger.info(f"Empty weights array, setting top 5 miners to 65535")
+                uint_weights = []
+                uint_uids = []
+                for hotkey in top_5_hotkeys:
+                    uint_weights.append(65535)
+                    uint_uids.append(self.metagraph.hotkeys.index(hotkey))
+                    logger.info(f"Setting weight for {hotkey} to 65535")
+
+            logger.info(f"Full Weights: {tabulate(list(zip(uint_uids, uint_weights)), headers=['UID', 'Weight'], tablefmt='grid')}")
+            # Summary logging
+            top_miners_summary = [
+                {"hotkey": hk[:8], "engagement_rate": f"{rate:.2f}%", "content_score": scores_for_weights.get(hk, 0.0)}
+                for hk, rate in sorted_miners[:5]
+            ]
+            logger.info(f"Top 5 miners: {top_miners_summary}")
+
             
-            logger.info(f"Setting weights. UIDS: {uint_uids}, WEIGHTS: {uint_weights}")
+            # Set weights on subnet
             result = await self.subtensor.set_weights(
-                wallet=self.wallet, 
-                netuid=self.netuid, 
+                wallet=self.wallet,
+                netuid=self.netuid,
                 uids=uint_uids,
-                weights=uint_weights, 
+                weights=uint_weights,
                 version_key=CONFIG.version_key,
             )
+
+            logger.info(f"Weights set result: {result}")
             
-            if result and result[0]:
-                logger.success(f"weights_set_success: {result}")
-            else:
-                logger.error(f"weights_set_failed: {result}")
-        
         except Exception as e:
-            logger.error(f"Error during weight setting: {e}")
+            logger.error(f"Weight calculation failed: {str(e)}")
 
     # ─────────────────── Main loop ───────────────
     async def run(self) -> None:
-        logger.info(
-            "validator_loop_start",
-            extra={
-                "update_interval": CONFIG.submission_update_interval,
+        logger.info("Validator Started", extra={
+            "config": {
+                "submission_update_interval": CONFIG.submission_update_interval,
                 "set_weights_interval": CONFIG.set_weights_interval,
-            },
-        )
+                "netuid": self.netuid
+            }
+        })
 
         async def _periodical_task() -> None:
             while True:
                 await self.calculate_and_set_weights()
                 await asyncio.sleep(CONFIG.set_weights_interval)
 
-        asyncio.create_task(_periodical_task())
+        warm_up = True
+
 
         while True:
             cycle_start = datetime.utcnow()
@@ -364,12 +422,19 @@ class TensorFlixValidator:
                     for hk, uid in zip(self.metagraph.hotkeys, self.metagraph.uids)
                 }
                 await self.update_all_submissions()
-                logger.info(f"active content ids: {self._active_content_ids}")
                 await self.update_performance_metrics(self._active_content_ids)
+                if warm_up:
+                    warm_up = False
+                    asyncio.create_task(_periodical_task())
                 self._active_content_ids.clear()
             except Exception as exc:
-                logger.exception("validator_cycle_error", exc_info=exc)
+                logger.exception("Validator cycle failed", exc_info=exc)
 
             elapsed = (datetime.utcnow() - cycle_start).total_seconds()
-            logger.info("validator_cycle_complete", extra={"seconds": elapsed})
+            logger.info("Validator Cycle Complete", extra={
+                "performance": {
+                    "duration_seconds": round(elapsed, 2),
+                    "metagraph_size": len(self.metagraph.hotkeys)
+                }
+            })
             await asyncio.sleep(CONFIG.submission_update_interval)
