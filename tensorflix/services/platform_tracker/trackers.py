@@ -42,7 +42,6 @@ class PlatformTracker(ABC):
         )
         response = await apify_client.dataset(run["defaultDatasetId"]).list_items()
         item = response.items[0]
-        logger.info(item)
         medias = item["result"]["medias"]
         for media in medias:
             if media["type"] == "video":
@@ -56,6 +55,7 @@ class YouTubeTracker(PlatformTracker):
     def __init__(self, apify_client: ApifyClientAsync):
         self.apify_client = apify_client
         self.actor_id = config.youtube_actor_id
+        self.actor = self.apify_client.actor(self.actor_id)
 
     async def get_metadata(self, content_id: str) -> YoutubeVideoMetadata:
         """Get YouTube video metadata."""
@@ -65,7 +65,7 @@ class YouTubeTracker(PlatformTracker):
         apify_payload = request.get_apify_payload()
         print(apify_payload)
 
-        run = await self.apify_client.actor(self.actor_id).call(run_input=apify_payload)
+        run = await self.actor.call(run_input=apify_payload)
         response = await self.apify_client.dataset(run["defaultDatasetId"]).list_items()
 
         logger.info(response.items[0])
@@ -82,7 +82,7 @@ class InstagramTracker(PlatformTracker):
         self.apify_client = apify_client
         self.actor_id = config.instagram_actor_id
         self.follower_count_actor_id = config.instagram_follower_count_actor_id
-
+        self.actor = self.apify_client.actor(self.actor_id)
     async def get_metadata(self, content_id: str) -> InstagramPostMetadata:
         """Get Instagram post metadata."""
         logger.info(f"Getting Instagram post metadata for {content_id}")
