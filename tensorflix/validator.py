@@ -355,7 +355,6 @@ class TensorFlixValidator:
 
             # Normalize weights
             weights_array = np.array(weights, dtype=np.float32)
-            weights_array = np.clip(weights_array, 0, 1)
             if np.sum(weights_array) > 0:
                 weights_array /= np.sum(weights_array)
 
