@@ -1,13 +1,24 @@
-# main.py
+#mining-rest.py
 from __future__ import annotations
 
+import os
+import json
 import uuid
+import logging
+from enum import Enum
+from uuid import uuid4
+from pathlib import Path
 from datetime import datetime, timezone
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
+import io
 
 import boto3
-import httpx
+from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import ClientError, EndpointConnectionError
+
+import httpx
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
 from fastapi import (
     BackgroundTasks,
     Body,
@@ -19,7 +30,24 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+
 from pydantic import BaseModel, Field
+
+# ───── Setup ─────────────────────────────────────────────────────────────
+logger = logging.getLogger("uvicorn.error")
+SUBMISSION_LOG_FILE = Path("submissions.jsonl")
+
+
+class SubmissionStatus(str, Enum):
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"
+
+class Platform(str, Enum):
+    youtube = "youtube/video"
+    instagraReel = "instagram/reel"
+    instagramPost = "instagram/post"
 
 # ───────────────────── Models ──────────────────────
 
@@ -47,7 +75,7 @@ class R2Config(BaseModel):
     public_link_id: str
 
 
-# ───────────────── In-memory “storage” ─────────────────
+# ───────────────── In-memory "storage" ─────────────────
 SUBMISSIONS: dict[str, Submission] = {}
 GIST_CFG: GistConfig | None = None
 R2_CFG: R2Config | None = None
@@ -195,57 +223,72 @@ def list_submissions():
     return list(SUBMISSIONS.values())
 
 
-@app.post(
-    "/submissions/upload-video",
-    status_code=201,
-    response_model=Submission,
-    tags=["Submissions"],
-    dependencies=[Depends(require_storage_ready)],
+def save_submission_to_disk(submission: Submission):
+    SUBMISSION_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with SUBMISSION_LOG_FILE.open("a") as f:
+        f.write(json.dumps(submission.dict()) + "\n")
+
+# ───── Upload Logic ───────────────────────────────────────────────────────
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type(Exception),
+    reraise=True
 )
+def upload_multipart_to_r2(file_like, key):
+    s3 = _r2_client()
+    config = TransferConfig(
+        multipart_threshold=8 * 1024 * 1024,
+        multipart_chunksize=8 * 1024 * 1024,
+        max_concurrency=5,
+        use_threads=True
+    )
+    file_like.seek(0)
+    s3.upload_fileobj(file_like, R2_CFG.bucket_name, key, Config=config)
+
+
+def background_upload(sub_id: str, file_like, key: str):
+    try:
+        upload_multipart_to_r2(file_like, key)
+        SUBMISSIONS[sub_id].status = SubmissionStatus.completed
+        SUBMISSIONS[sub_id].file_name = key
+    except Exception as e:
+        logger.exception("Upload failed for %s", sub_id)
+        SUBMISSIONS[sub_id].status = SubmissionStatus.failed
+    finally:
+        file_like.close()
+        save_submission_to_disk(SUBMISSIONS[sub_id])
+
+# ───── API Endpoint ───────────────────────────────────────────────────────
+
+@app.post("/submissions/upload-video", status_code=201, response_model=Submission)
 async def upload_video(
+    background_tasks: BackgroundTasks,
     content_id: str = Form(...),
-    platform: str = Form(...),
+    platform: Platform = Form(...),
     video_file: UploadFile = File(...),
 ):
-    sub_id = uuid.uuid4().hex
+    sub_id = uuid4().hex
+    key = f"videos/{video_file.filename}"
+
     submission = Submission(
         id=sub_id,
         content_id=content_id,
         platform=platform,
-        status="processing",
-        created_at=_now_iso(),
-        file_name=video_file.filename,
+        file_name=key,
+        status=SubmissionStatus.processing,
+        created_at=_now_iso()
     )
+
     SUBMISSIONS[sub_id] = submission
+    save_submission_to_disk(submission)
 
-    try:
-        s3 = _r2_client()
-        key = f"{sub_id}/{video_file.filename}"
-        video_file.file.seek(0)
-        s3.upload_fileobj(video_file.file, R2_CFG.bucket_name, key)
-        submission.status = "completed"
-        submission.file_name = key
-    except Exception as exc:  # noqa: BLE001
-        submission.status = "failed"
-        print("Upload error:", exc)
-    finally:
-        await video_file.close()
+    file_bytes = await video_file.read()
+    file_like = io.BytesIO(file_bytes)
+    background_tasks.add_task(background_upload, sub_id, file_like, key)
+
     return submission
-
-
-def _finish_upload(file: UploadFile, sub_id: str):
-    """Stream the file straight into Cloudflare R2."""
-    s3 = _r2_client()
-    key = f"{sub_id}/{file.filename}"
-    try:
-        file.file.seek(0)
-        s3.upload_fileobj(file.file, R2_CFG.bucket_name, key)
-        SUBMISSIONS[sub_id].status = "completed"
-        SUBMISSIONS[sub_id].file_name = key
-    except Exception:  # noqa: BLE001
-        SUBMISSIONS[sub_id].status = "failed"
-    finally:
-        file.file.close()
 
 
 @app.get(
@@ -280,6 +323,28 @@ def delete_submission(submission_id: str):
             s3.delete_object(Bucket=R2_CFG.bucket_name, Key=obj["Key"])
     except Exception:  # noqa: BLE001
         pass  # ignore – deletion is optional
+
+
+@app.get(
+    "/submissions/{submission_id}/download",
+    tags=["Submissions"],
+    dependencies=[Depends(require_storage_ready)],
+)
+def download_submission(submission_id: str):
+    sub = SUBMISSIONS.get(submission_id)
+    if not sub or not sub.file_name:
+        raise HTTPException(status_code=404, detail="Submission not found or file not available")
+    s3 = _r2_client()
+    try:
+        file_obj = s3.get_object(Bucket=R2_CFG.bucket_name, Key=sub.file_name)
+        return StreamingResponse(
+            file_obj["Body"],
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename={Path(sub.file_name).name}"}
+        )
+    except Exception as e:
+        logger.exception("Failed to download file for %s", submission_id)
+        raise HTTPException(status_code=500, detail="Failed to download file")
 
 
 # ----------------------------------------------------------------------------------
