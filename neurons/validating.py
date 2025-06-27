@@ -16,8 +16,6 @@ import wandb
 
 load_dotenv()
 
-wandb.init(project="infinitevibe-subnet")
-
 
 async def _bootstrap() -> None:
     parser = argparse.ArgumentParser(description="TensorFlix validator")
@@ -29,6 +27,9 @@ async def _bootstrap() -> None:
     wallet = bt.wallet(config=cli_cfg)
     subtensor = bt.async_subtensor(config=cli_cfg)
     metagraph = await subtensor.metagraph(netuid=cli_cfg.netuid)
+    uid = metagraph.hotkeys.index(wallet.hotkey.ss58_address)
+
+    wandb.init(project="infinitevibe-subnet", entity="vidaio_vidaio", name=f"validator-{uid}")
 
     logger.success(
         "startup_complete",
