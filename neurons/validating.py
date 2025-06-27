@@ -27,9 +27,13 @@ async def _bootstrap() -> None:
     wallet = bt.wallet(config=cli_cfg)
     subtensor = bt.async_subtensor(config=cli_cfg)
     metagraph = await subtensor.metagraph(netuid=cli_cfg.netuid)
-    uid = metagraph.hotkeys.index(wallet.hotkey.ss58_address)
+    try:
+        uid = metagraph.hotkeys.index(wallet.hotkey.ss58_address)
+    except ValueError:
+        uid = 999
 
-    wandb.init(project="infinitevibe-subnet", entity="vidaio_vidaio", name=f"validator-{uid}")
+
+    wandb.init(project="infinitevibe-subnet", entity="toilaluan", name=f"validator-{uid}")
 
     logger.success(
         "startup_complete",
