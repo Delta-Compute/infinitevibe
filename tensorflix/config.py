@@ -13,8 +13,9 @@ class Config(BaseSettings):
     submission_update_interval: int = Field(60 * 60 * 2, description="seconds")
     set_weights_interval: int = Field(60 * 20, description="seconds")
     max_int_weight: int = 65_535
-    version_key: int = 0  # bump on scoring-logic changes
+    version_key: int = 0
     ai_generated_score_threshold: float = 0.3
+    max_submissions_per_hotkey: int = 5
 
     # ─────────────────── Services ───────────────────
     service_platform_tracker_url: str = "http://localhost:12001"
@@ -22,6 +23,7 @@ class Config(BaseSettings):
 
     # ─────────────────── MongoDB  ───────────────────
     mongodb_uri: str = Field(default="mongodb://localhost:27017/", env="MONGODB_URI")
+    version: str = "0.0.2"
 
     # ─────────────────── Derived helpers ────────────
     @property
