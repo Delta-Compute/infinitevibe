@@ -375,9 +375,11 @@ class TensorFlixValidator:
             # Summary logging
             top_miners_summary = [
                 {"hotkey": hk[:8], "engagement_rate": f"{rate:.2f}%", "content_score": scores_for_weights.get(hk, 0.0)}
-                for hk, rate in sorted_miners[:5]
+                for hk, rate in sorted_miners
             ]
-            logger.info(f"Top 5 miners: {top_miners_summary}")
+            top_miners_summary = [str(item) for item in top_miners_summary]
+            summary_text = '\n'.join(top_miners_summary)
+            logger.info(f"Sorted miners by engagement:\n{summary_text}")
 
             
             # Set weights on subnet
