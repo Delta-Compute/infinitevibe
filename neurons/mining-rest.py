@@ -1,4 +1,4 @@
-#mining-rest.py
+# mining-rest.py
 from __future__ import annotations
 
 import os
@@ -17,7 +17,12 @@ from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import ClientError, EndpointConnectionError
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
 
 from fastapi import (
     BackgroundTasks,
@@ -28,11 +33,16 @@ from fastapi import (
     Form,
     HTTPException,
     UploadFile,
+    Query,
 )
+from fastapi.responses import JSONResponse
+from fastapi import status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi import Path as FastAPIPath
 
 from pydantic import BaseModel, Field
+
 
 # ───── Setup ─────────────────────────────────────────────────────────────
 logger = logging.getLogger("uvicorn.error")
@@ -44,21 +54,27 @@ class SubmissionStatus(str, Enum):
     completed = "completed"
     failed = "failed"
 
+
 class Platform(str, Enum):
     youtube = "youtube/video"
     instagraReel = "instagram/reel"
     instagramPost = "instagram/post"
+    Tiktok = "tiktok"
+    twitter = "twitter"
+
 
 # ───────────────────── Models ──────────────────────
 
 
-class Submission(BaseModel):
+class SubmissionModel(BaseModel):
     id: str
     content_id: str
     platform: str
     status: str = Field(default="completed")
     created_at: str
     file_name: Optional[str] = None  # object key within the R2 bucket
+    hotkey: Optional[str] = None  # creator hotkey
+    social_post_url: Optional[str] = None  # social media post URL
 
 
 class GistConfig(BaseModel):
@@ -76,7 +92,6 @@ class R2Config(BaseModel):
 
 
 # ───────────────── In-memory "storage" ─────────────────
-SUBMISSIONS: dict[str, Submission] = {}
 GIST_CFG: GistConfig | None = None
 R2_CFG: R2Config | None = None
 
@@ -215,26 +230,92 @@ def cfg_r2(cfg: R2Config):
 
 @app.get(
     "/submissions",
-    response_model=List[Submission],
+    response_model=List[SubmissionModel],
     tags=["Submissions"],
-    dependencies=[Depends(require_storage_ready)],
 )
 def list_submissions():
-    return list(SUBMISSIONS.values())
+    if not R2_CFG:
+        return []
+    s3 = _r2_client()
+    response = s3.list_objects_v2(Bucket=R2_CFG.bucket_name, Prefix="metadata/")
+    submissions = []
+
+    print(response)
+    for obj in response.get("Contents", []):
+        if obj["Key"].endswith(".json"):
+            file_obj = s3.get_object(Bucket=R2_CFG.bucket_name, Key=obj["Key"])
+            data = json.loads(file_obj["Body"].read().decode("utf-8"))
+            submissions.append(SubmissionModel(**data))
+    return submissions
 
 
-def save_submission_to_disk(submission: Submission):
+def save_submission_to_disk(submission: SubmissionModel):
     SUBMISSION_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     with SUBMISSION_LOG_FILE.open("a") as f:
         f.write(json.dumps(submission.dict()) + "\n")
 
+    # Also save to Gist if configured
+    if GIST_CFG:
+        try:
+            # Read existing content from gist
+            headers = {
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            }
+            if GIST_CFG.api_key:
+                headers["Authorization"] = f"token {GIST_CFG.api_key}"
+
+            async def update_gist():
+                async with httpx.AsyncClient(timeout=8) as client:
+                    # Get current gist content
+                    r = await client.get(
+                        f"https://api.github.com/gists/{GIST_CFG.gist_id}",
+                        headers=headers,
+                    )
+                    if r.status_code == 200:
+                        gist_data = r.json()
+                        files = gist_data.get("files", {})
+                        current_file = files.get(GIST_CFG.file_name, {})
+                        current_content = current_file.get("content", "")
+
+                        # Append new submission
+                        new_content = (
+                            current_content + json.dumps(submission.dict()) + "\n"
+                        )
+
+                        # Update gist
+                        update_data = {
+                            "files": {GIST_CFG.file_name: {"content": new_content}}
+                        }
+
+                        await client.patch(
+                            f"https://api.github.com/gists/{GIST_CFG.gist_id}",
+                            headers=headers,
+                            json=update_data,
+                        )
+
+            # Run gist update in background
+            import asyncio
+
+            try:
+                loop = asyncio.get_event_loop()
+                loop.create_task(update_gist())
+            except RuntimeError:
+                # If no event loop, create a new one
+                asyncio.run(update_gist())
+
+        except Exception as e:
+            logger.exception("Failed to update gist: %s", e)
+
+
 # ───── Upload Logic ───────────────────────────────────────────────────────
+
 
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
     retry=retry_if_exception_type(Exception),
-    reraise=True
+    reraise=True,
 )
 def upload_multipart_to_r2(file_like, key):
     s3 = _r2_client()
@@ -242,82 +323,92 @@ def upload_multipart_to_r2(file_like, key):
         multipart_threshold=8 * 1024 * 1024,
         multipart_chunksize=8 * 1024 * 1024,
         max_concurrency=5,
-        use_threads=True
+        use_threads=True,
     )
     file_like.seek(0)
     s3.upload_fileobj(file_like, R2_CFG.bucket_name, key, Config=config)
 
 
-def background_upload(sub_id: str, file_like, key: str):
+def background_upload(submission: SubmissionModel, file_like, key: str):
     try:
         upload_multipart_to_r2(file_like, key)
-        SUBMISSIONS[sub_id].status = SubmissionStatus.completed
-        SUBMISSIONS[sub_id].file_name = key
+        submission.status = SubmissionStatus.completed
+        submission.file_name = key
+
+        # Also store submission metadata in R2 as JSON
+        if R2_CFG:
+            try:
+                metadata = submission.dict()
+                metadata["video_url"] = (
+                    f"https://{R2_CFG.public_link_id}.r2.cloudflarestorage.com/{key}"
+                )
+
+                metadata_key = f"metadata/{submission.id}.json"
+                metadata_bytes = json.dumps(metadata, indent=2).encode("utf-8")
+                metadata_file = io.BytesIO(metadata_bytes)
+
+                s3 = _r2_client()
+                s3.upload_fileobj(metadata_file, R2_CFG.bucket_name, metadata_key)
+                metadata_file.close()
+
+            except Exception as e:
+                logger.exception("Failed to store metadata in R2 for %s", submission.id)
+
     except Exception as e:
-        logger.exception("Upload failed for %s", sub_id)
-        SUBMISSIONS[sub_id].status = SubmissionStatus.failed
+        logger.exception("Upload failed for %s", submission.id)
+        submission.status = SubmissionStatus.failed
     finally:
         file_like.close()
-        save_submission_to_disk(SUBMISSIONS[sub_id])
+        save_submission_to_disk(submission)
+
 
 # ───── API Endpoint ───────────────────────────────────────────────────────
-
-@app.post("/submissions/upload-video", status_code=201, response_model=Submission)
-async def upload_video(
-    background_tasks: BackgroundTasks,
-    content_id: str = Form(...),
-    platform: Platform = Form(...),
-    video_file: UploadFile = File(...),
-):
-    sub_id = uuid4().hex
-    key = f"videos/{video_file.filename}"
-
-    submission = Submission(
-        id=sub_id,
-        content_id=content_id,
-        platform=platform,
-        file_name=key,
-        status=SubmissionStatus.processing,
-        created_at=_now_iso()
-    )
-
-    SUBMISSIONS[sub_id] = submission
-    save_submission_to_disk(submission)
-
-    file_bytes = await video_file.read()
-    file_like = io.BytesIO(file_bytes)
-    background_tasks.add_task(background_upload, sub_id, file_like, key)
-
-    return submission
 
 
 @app.get(
     "/submissions/{submission_id}",
-    response_model=Submission,
+    response_model=SubmissionModel,
     tags=["Submissions"],
-    dependencies=[Depends(require_storage_ready)],
 )
 def get_submission(submission_id: str):
-    sub = SUBMISSIONS.get(submission_id)
-    if not sub:
-        raise HTTPException(status_code=404, detail="Submission not found")
-    return sub
+    if not R2_CFG:
+        raise HTTPException(status_code=503, detail="R2 not configured")
+
+    s3 = _r2_client()
+    try:
+        metadata_key = f"metadata/{submission_id}.json"
+        file_obj = s3.get_object(Bucket=R2_CFG.bucket_name, Key=metadata_key)
+        data = json.loads(file_obj["Body"].read().decode("utf-8"))
+        return SubmissionModel(**data)
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "NoSuchKey":
+            raise HTTPException(status_code=404, detail="Submission not found")
+        else:
+            raise HTTPException(status_code=500, detail="Failed to retrieve submission")
 
 
 @app.delete(
     "/submissions/{submission_id}",
     status_code=204,
     tags=["Submissions"],
-    dependencies=[Depends(require_storage_ready)],
 )
 def delete_submission(submission_id: str):
-    if SUBMISSIONS.pop(submission_id, None) is None:
+    if not R2_CFG:
+        raise HTTPException(status_code=503, detail="R2 not configured")
+
+    s3 = _r2_client()
+
+    # Delete metadata
+    try:
+        metadata_key = f"metadata/{submission_id}.json"
+        s3.delete_object(Bucket=R2_CFG.bucket_name, Key=metadata_key)
+    except ClientError as e:
+        logger.error(f"Could not delete metadata for {submission_id}: {e}")
         raise HTTPException(status_code=404, detail="Submission not found")
 
-    # best-effort delete from R2
+    # best-effort delete video from R2
     try:
-        s3 = _r2_client()
-        prefix = f"{submission_id}/"
+        prefix = f"videos/{submission_id}"
         resp = s3.list_objects_v2(Bucket=R2_CFG.bucket_name, Prefix=prefix)
         for obj in resp.get("Contents", []):
             s3.delete_object(Bucket=R2_CFG.bucket_name, Key=obj["Key"])
@@ -328,23 +419,185 @@ def delete_submission(submission_id: str):
 @app.get(
     "/submissions/{submission_id}/download",
     tags=["Submissions"],
-    dependencies=[Depends(require_storage_ready)],
 )
 def download_submission(submission_id: str):
-    sub = SUBMISSIONS.get(submission_id)
-    if not sub or not sub.file_name:
-        raise HTTPException(status_code=404, detail="Submission not found or file not available")
+    sub = get_submission(submission_id)
+    if not sub.file_name:
+        raise HTTPException(
+            status_code=404, detail="File not available for this submission"
+        )
     s3 = _r2_client()
     try:
         file_obj = s3.get_object(Bucket=R2_CFG.bucket_name, Key=sub.file_name)
         return StreamingResponse(
             file_obj["Body"],
             media_type="application/octet-stream",
-            headers={"Content-Disposition": f"attachment; filename={Path(sub.file_name).name}"}
+            headers={
+                "Content-Disposition": f"attachment; filename={Path(sub.file_name).name}"
+            },
         )
     except Exception as e:
         logger.exception("Failed to download file for %s", submission_id)
         raise HTTPException(status_code=500, detail="Failed to download file")
+
+
+# ───── New Submission Endpoint ─────────────────────────────────────────────
+@app.post("/submissions/video-upload", status_code=201, response_model=SubmissionModel)
+async def submit(
+    background_tasks: BackgroundTasks,
+    content_id: str = Form(...),
+    platform: Platform = Form(...),
+    video_file: UploadFile = File(...),
+    hotkey: str = Form(...),
+    social_post_url: str = Form(...),
+):
+    sub_id = uuid4().hex
+
+    # Determine file key and initial status based on R2 config
+    if R2_CFG:
+        key = f"videos/{sub_id}_{video_file.filename}"
+        status = SubmissionStatus.processing
+    else:
+        key = None
+        status = SubmissionStatus.completed
+
+    submission = SubmissionModel(
+        id=sub_id,
+        content_id=content_id,
+        platform=platform,
+        file_name=key,
+        status=status,
+        created_at=_now_iso(),
+        hotkey=hotkey,
+        social_post_url=social_post_url,
+    )
+
+    save_submission_to_disk(submission)
+
+    if R2_CFG:
+        file_bytes = await video_file.read()
+        file_like = io.BytesIO(file_bytes)
+        # The key must not be None here
+        background_tasks.add_task(background_upload, submission, file_like, key)
+
+    return submission
+
+
+# ───── Leaderboard Endpoint ─────────────────────────────────────────────
+@app.get("/leaderboard")
+def get_leaderboard():
+    submissions = list_submissions()
+    # Group submissions by hotkey (extracted from content_id or stored separately)
+    creator_submissions = {}
+
+    for submission in submissions:
+        # Use stored hotkey or extract from content_id as fallback
+        hotkey = submission.hotkey or (
+            submission.content_id.split("_")[0]
+            if "_" in submission.content_id
+            else submission.content_id
+        )
+
+        if hotkey not in creator_submissions:
+            creator_submissions[hotkey] = []
+        creator_submissions[hotkey].append(submission)
+
+    leaderboard = []
+    for hotkey, user_submissions in creator_submissions.items():
+        total_score = sum(
+            1 for s in user_submissions if s.status == "completed"
+        )  # Simple scoring
+        daily_score = sum(
+            1
+            for s in user_submissions
+            if s.status == "completed"
+            and datetime.fromisoformat(s.created_at).date() == datetime.now().date()
+        )
+
+        latest_submission = (
+            max(user_submissions, key=lambda s: s.created_at)
+            if user_submissions
+            else None
+        )
+
+        leaderboard.append(
+            {
+                "hotkey": hotkey,
+                "total_score": total_score,
+                "daily_score": daily_score,
+                "latest_submission_url": (
+                    latest_submission.file_name if latest_submission else None
+                ),
+            }
+        )
+
+    # Sort by total_score descending
+    leaderboard.sort(key=lambda x: x["total_score"], reverse=True)
+    return leaderboard
+
+
+# ───── Creative Brief Endpoint ─────────────────────────────────────────────
+@app.get("/creative-brief")
+def get_creative_brief():
+    submissions = list_submissions()
+    # Return all completed submissions as "featured" for demo
+    featured = [s for s in submissions if s.status == "completed"]
+    featured.sort(key=lambda s: s.created_at, reverse=True)
+
+    return [
+        {
+            "id": s.id,
+            "content_id": s.content_id,
+            "platform": s.platform,
+            "file_name": s.file_name,
+            "status": s.status,
+            "created_at": s.created_at,
+            "hotkey": s.hotkey,
+            "social_post_url": s.social_post_url,
+        }
+        for s in featured
+    ]
+
+
+# ───── Creator Profile Endpoint ─────────────────────────────────────────────
+@app.get("/creators/{hotkey}")
+def get_creator_profile(hotkey: str = FastAPIPath(...)):
+    submissions = list_submissions()
+    # Find all submissions for this hotkey
+    creator_submissions = []
+
+    for submission in submissions:
+        # Use stored hotkey or extract from content_id as fallback
+        submission_hotkey = submission.hotkey or (
+            submission.content_id.split("_")[0]
+            if "_" in submission.content_id
+            else submission.content_id
+        )
+
+        if submission_hotkey == hotkey:
+            creator_submissions.append(submission)
+
+    if not creator_submissions:
+        raise HTTPException(status_code=404, detail="Creator not found")
+
+    creator_submissions.sort(key=lambda s: s.created_at, reverse=True)
+
+    return {
+        "hotkey": hotkey,
+        "submissions": [
+            {
+                "id": s.id,
+                "content_id": s.content_id,
+                "platform": s.platform,
+                "file_name": s.file_name,
+                "status": s.status,
+                "created_at": s.created_at,
+                "hotkey": s.hotkey,
+                "social_post_url": s.social_post_url,
+            }
+            for s in creator_submissions
+        ],
+    }
 
 
 # ----------------------------------------------------------------------------------
