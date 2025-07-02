@@ -11,3 +11,5 @@ wheels/
 *.log
 .env
 wandb/
+venv/
+ecosystem.config.js

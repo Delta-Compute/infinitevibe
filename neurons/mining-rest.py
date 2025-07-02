@@ -206,6 +206,7 @@ async def health():
 @app.post("/git", status_code=200, tags=["Storage"])
 async def cfg_gist(cfg: GistConfig = Body(...)):
     ok, msg = await probe_gist(cfg)
+    
     if not ok:
         raise HTTPException(status_code=401, detail=f"Gist check failed: {msg}")
 
@@ -255,27 +256,29 @@ def save_submission_to_disk(submission: SubmissionModel):
         f.write(json.dumps(submission.dict()) + "\n")
 
     # Also save to Gist if configured
-    if GIST_CFG:
+    if GIST_CFG is not None:
         try:
+            # Store reference to avoid None issues in async function
+            gist_cfg = GIST_CFG
             # Read existing content from gist
             headers = {
                 "Accept": "application/vnd.github+json",
                 "X-GitHub-Api-Version": "2022-11-28",
             }
-            if GIST_CFG.api_key:
-                headers["Authorization"] = f"token {GIST_CFG.api_key}"
+            if gist_cfg.api_key:
+                headers["Authorization"] = f"token {gist_cfg.api_key}"
 
             async def update_gist():
                 async with httpx.AsyncClient(timeout=8) as client:
                     # Get current gist content
                     r = await client.get(
-                        f"https://api.github.com/gists/{GIST_CFG.gist_id}",
+                        f"https://api.github.com/gists/{gist_cfg.gist_id}",
                         headers=headers,
                     )
                     if r.status_code == 200:
                         gist_data = r.json()
                         files = gist_data.get("files", {})
-                        current_file = files.get(GIST_CFG.file_name, {})
+                        current_file = files.get(gist_cfg.file_name, {})
                         current_content = current_file.get("content", "")
 
                         # Append new submission
@@ -285,11 +288,11 @@ def save_submission_to_disk(submission: SubmissionModel):
 
                         # Update gist
                         update_data = {
-                            "files": {GIST_CFG.file_name: {"content": new_content}}
+                            "files": {gist_cfg.file_name: {"content": new_content}}
                         }
 
                         await client.patch(
-                            f"https://api.github.com/gists/{GIST_CFG.gist_id}",
+                            f"https://api.github.com/gists/{gist_cfg.gist_id}",
                             headers=headers,
                             json=update_data,
                         )
@@ -318,6 +321,8 @@ def save_submission_to_disk(submission: SubmissionModel):
     reraise=True,
 )
 def upload_multipart_to_r2(file_like, key):
+    if R2_CFG is None:
+        raise RuntimeError("R2 not configured")
     s3 = _r2_client()
     config = TransferConfig(
         multipart_threshold=8 * 1024 * 1024,
@@ -331,12 +336,12 @@ def upload_multipart_to_r2(file_like, key):
 
 def background_upload(submission: SubmissionModel, file_like, key: str):
     try:
-        upload_multipart_to_r2(file_like, key)
-        submission.status = SubmissionStatus.completed
-        submission.file_name = key
+        if R2_CFG is not None:
+            upload_multipart_to_r2(file_like, key)
+            submission.status = SubmissionStatus.completed
+            submission.file_name = key
 
-        # Also store submission metadata in R2 as JSON
-        if R2_CFG:
+            # Also store submission metadata in R2 as JSON
             try:
                 metadata = submission.dict()
                 metadata["video_url"] = (
@@ -353,6 +358,10 @@ def background_upload(submission: SubmissionModel, file_like, key: str):
 
             except Exception as e:
                 logger.exception("Failed to store metadata in R2 for %s", submission.id)
+        else:
+            # R2 not configured, just mark as completed
+            submission.status = SubmissionStatus.completed
+            submission.file_name = key
 
     except Exception as e:
         logger.exception("Upload failed for %s", submission.id)
@@ -421,6 +430,8 @@ def delete_submission(submission_id: str):
     tags=["Submissions"],
 )
 def download_submission(submission_id: str):
+    if R2_CFG is None:
+        raise HTTPException(status_code=503, detail="R2 not configured")
     sub = get_submission(submission_id)
     if not sub.file_name:
         raise HTTPException(
@@ -458,7 +469,7 @@ async def submit(
         key = f"videos/{sub_id}_{video_file.filename}"
         status = SubmissionStatus.processing
     else:
-        key = None
+        key = f"videos/{sub_id}_{video_file.filename}"  # Still create a key for consistency
         status = SubmissionStatus.completed
 
     submission = SubmissionModel(
@@ -477,7 +488,6 @@ async def submit(
     if R2_CFG:
         file_bytes = await video_file.read()
         file_like = io.BytesIO(file_bytes)
-        # The key must not be None here
         background_tasks.add_task(background_upload, submission, file_like, key)
 
     return submission
@@ -610,6 +620,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "mining-rest:app",
         host="0.0.0.0",
-        port=int(os.getenv("PORT", 8000)),
+        port=int(os.getenv("PORT", 8080)),
         reload=True,
     )
