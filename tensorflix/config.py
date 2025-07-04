@@ -24,6 +24,13 @@ class Config(BaseSettings):
     # ─────────────────── MongoDB  ───────────────────
     mongodb_uri: str = Field(default="mongodb://localhost:27017/", env="MONGODB_URI")
     version: str = "0.0.2"
+    
+    # ─────────────────── R2 Storage ─────────────────
+    r2_account_id: str = Field(default="", env="R2_ACCOUNT_ID")
+    r2_access_key_id: str = Field(default="", env="R2_ACCESS_KEY_ID")
+    r2_secret_access_key: str = Field(default="", env="R2_SECRET_ACCESS_KEY")
+    r2_bucket_name: str = Field(default="infinitevibe-submissions", env="R2_BUCKET_NAME")
+    r2_public_url: str = Field(default="", env="R2_PUBLIC_URL")
 
     # ─────────────────── Derived helpers ────────────
     @property

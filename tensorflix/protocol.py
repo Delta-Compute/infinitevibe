@@ -12,6 +12,7 @@ from tensorflix.services.platform_tracker.data_types import (
     YoutubeVideoMetadata,
     InstagramPostMetadata,
 )
+from tensorflix.models.brief import BriefCommitMessage
 
 Metric = YoutubeVideoMetadata | InstagramPostMetadata
 
@@ -100,21 +101,36 @@ class PeerMetadata(BaseModel):
     hotkey: str
     commit: str
     submissions: list[Submission] = Field(default_factory=list)
+    brief_commit: BriefCommitMessage | None = Field(default=None)
 
     def __repr__(self) -> str:  # noqa: D401
         return (
             f"PeerMetadata(uid={self.uid}, hotkey={self.hotkey[:8]}…, "
-            f"commit={self.commit}, submissions={len(self.submissions)})"
+            f"commit={self.commit}, submissions={len(self.submissions)}, "
+            f"brief={'Yes' if self.brief_commit else 'No'})"
         )
 
     @model_validator(mode="after")
     def _validate_commit(cls, v: "PeerMetadata") -> "PeerMetadata":
+        # First check if it's a brief submission format
+        brief_commit = BriefCommitMessage.parse(v.commit)
+        if brief_commit:
+            v.brief_commit = brief_commit
+            logger.info(f"Brief submission detected: {brief_commit.brief_id} - {brief_commit.submission_type}")
+            return v
+        
+        # Otherwise validate as normal gist format
         if ":" not in v.commit:
             logger.warning(f"commit_format_error: {v.commit}")
             v.commit = ""
         return v
 
     async def update_submissions(self) -> None:
+        # Skip if this is a brief submission
+        if self.brief_commit:
+            logger.debug(f"Skipping gist fetch for brief submission {self.brief_commit.brief_id}")
+            return
+            
         try:
             username, gist_id = self.commit.split(":", 1)
             url = f"https://gist.githubusercontent.com/{username}/{gist_id}/raw"
