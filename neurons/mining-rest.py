@@ -89,6 +89,19 @@ class R2Config(BaseModel):
     bucket_name: str
     account_id: str
     public_link_id: str
+    
+    # @classmethod
+    # def validate_account_id(cls, v):
+    #     """Validate that account_id looks like a valid Cloudflare account ID"""
+    #     if not v or len(v) < 10:  # Cloudflare account IDs are typically long
+    #         raise ValueError("account_id appears to be invalid")
+    #     return v
+
+
+class R2ConfigResponse(BaseModel):
+    status: str
+    message: str
+    details: Optional[str] = None
 
 
 # ───────────────── In-memory "storage" ─────────────────
@@ -96,7 +109,29 @@ GIST_CFG: GistConfig | None = None
 R2_CFG: R2Config | None = None
 
 # ───────────────── FastAPI app ───────────────────────
-app = FastAPI(title="Video Submission API (stateless demo)", version="1.1.0")
+app = FastAPI(
+    title="Video Submission API (stateless demo)", 
+    version="1.1.0",
+    description="""
+    ## Setup Required
+    
+    Before using any endpoints, you must configure both storage backends:
+    
+    1. **Configure Gist Storage**: `POST /git` with GistConfig
+    2. **Configure R2 Storage**: `POST /r2` with R2Config
+    
+    Check `/health` for current configuration status.
+    
+    ## Endpoints
+    
+    - **Health**: `GET /health` - Check system status and configuration
+    - **Storage Setup**: `POST /git`, `POST /r2` - Configure storage backends
+    - **Submissions**: All submission endpoints require storage configuration
+    - **Leaderboard**: `GET /leaderboard` - View creator rankings
+    - **Creative Brief**: `GET /creative-brief` - Get featured content
+    - **Creator Profiles**: `GET /creators/{hotkey}` - View creator details
+    """
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -138,7 +173,7 @@ async def probe_gist(cfg: GistConfig | None) -> Tuple[bool, str]:
     return False, f"github error {r.status_code}"
 
 
-def probe_r2(cfg: R2Config | None) -> Tuple[bool, str]:
+def probe_r2(cfg: Optional[R2Config]) -> Tuple[bool, str]:
     if cfg is None:
         return False, "not configured"
 
@@ -149,18 +184,21 @@ def probe_r2(cfg: R2Config | None) -> Tuple[bool, str]:
         aws_access_key_id=cfg.access_key_id,
         aws_secret_access_key=cfg.secret_access_key,
     )
+    
     try:
         s3.head_bucket(Bucket=cfg.bucket_name)
+        # If success
         return True, "ok"
     except EndpointConnectionError:
-        return False, "endpoint unreachable"
+        return False, "endpoint unreachable - check account_id and network connectivity"
     except ClientError as e:
         code = e.response["Error"]["Code"]
+        message = e.response["Error"].get("Message", "")
         if code in {"403", "AccessDenied"}:
-            return False, "unauthorised"
+            return False, f"unauthorised - check access_key_id and secret_access_key: {message}"
         if code in {"404", "NoSuchBucket"}:
-            return False, "bucket not found"
-        return False, f"r2 error {code}"
+            return False, f"bucket not found - check bucket_name '{cfg.bucket_name}': {message}"
+        return False, f"r2 error {code}: {message}"
 
 
 async def require_storage_ready() -> None:
@@ -170,6 +208,20 @@ async def require_storage_ready() -> None:
         raise HTTPException(
             status_code=503,
             detail="Storage back-ends unavailable — see /health",
+        )
+
+
+async def require_storage_configured() -> None:
+    """Dependency to ensure both Gist and R2 are configured before allowing access to endpoints"""
+    if GIST_CFG is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Gist not configured. Please configure Gist storage first via /git endpoint",
+        )
+    if R2_CFG is None:
+        raise HTTPException(
+            status_code=503,
+            detail="R2 not configured. Please configure R2 storage first via /r2 endpoint",
         )
 
 
@@ -193,10 +245,28 @@ def _r2_client():
 async def health():
     gist_ok, gist_msg = await probe_gist(GIST_CFG)
     r2_ok, r2_msg = probe_r2(R2_CFG)
+    
+    # Check if configurations are set
+    gist_configured = GIST_CFG is not None
+    r2_configured = R2_CFG is not None
+    
     return {
         "status": "healthy" if gist_ok and r2_ok else "degraded",
-        "gist": {"ok": gist_ok, "detail": gist_msg},
-        "r2": {"ok": r2_ok, "detail": r2_msg},
+        "gist": {
+            "configured": gist_configured,
+            "ok": gist_ok, 
+            "detail": gist_msg
+        },
+        "r2": {
+            "configured": r2_configured,
+            "ok": r2_ok, 
+            "detail": r2_msg
+        },
+        "setup_required": not (gist_configured and r2_configured),
+        "setup_instructions": {
+            "gist": "POST /git with GistConfig" if not gist_configured else None,
+            "r2": "POST /r2 with R2Config" if not r2_configured else None,
+        }
     }
 
 
@@ -215,15 +285,37 @@ async def cfg_gist(cfg: GistConfig = Body(...)):
     return {"status": "ok", "message": "Gist verified 🚀"}
 
 
-@app.post("/r2", status_code=200, tags=["Storage"])
+@app.post("/r2", status_code=200, response_model=R2ConfigResponse, tags=["Storage"])
 def cfg_r2(cfg: R2Config):
-    ok, msg = probe_r2(cfg)
-    if not ok:
-        raise HTTPException(status_code=401, detail=f"R2 check failed: {msg}")
+    try:
+        ok, msg = probe_r2(cfg)
+        if not ok:
+            # Use more appropriate status codes based on the error type
+            if "unauthorised" in msg.lower():
+                status_code = 401
+            elif "not found" in msg.lower():
+                status_code = 404
+            elif "unreachable" in msg.lower():
+                status_code = 503
+            else:
+                status_code = 400  # Bad request for other errors
+            
+            raise HTTPException(status_code=status_code, detail=f"R2 check failed: {msg}")
 
-    global R2_CFG
-    R2_CFG = cfg
-    return {"status": "ok", "message": "R2 bucket verified ✅"}
+        global R2_CFG
+        R2_CFG = cfg
+        return R2ConfigResponse(
+            status="ok", 
+            message="R2 bucket verified ✅",
+            details="Configuration saved successfully"
+        )
+    except Exception as e:
+        # Catch any unexpected errors and provide helpful debugging info
+        logger.exception("Unexpected error in R2 configuration")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Internal error during R2 configuration: {str(e)}"
+        )
 
 
 # ── SUBMISSIONS ──────────────────────────────────────
@@ -234,9 +326,12 @@ def cfg_r2(cfg: R2Config):
     response_model=List[SubmissionModel],
     tags=["Submissions"],
 )
-def list_submissions():
-    if not R2_CFG:
-        return []
+async def list_submissions(storage_ready: None = Depends(require_storage_configured)):
+    """
+    List all video submissions.
+    
+    Requires both Gist and R2 storage to be configured.
+    """
     s3 = _r2_client()
     response = s3.list_objects_v2(Bucket=R2_CFG.bucket_name, Prefix="metadata/")
     submissions = []
@@ -336,32 +431,27 @@ def upload_multipart_to_r2(file_like, key):
 
 def background_upload(submission: SubmissionModel, file_like, key: str):
     try:
-        if R2_CFG is not None:
-            upload_multipart_to_r2(file_like, key)
-            submission.status = SubmissionStatus.completed
-            submission.file_name = key
+        upload_multipart_to_r2(file_like, key)
+        submission.status = SubmissionStatus.completed
+        submission.file_name = key
 
-            # Also store submission metadata in R2 as JSON
-            try:
-                metadata = submission.dict()
-                metadata["video_url"] = (
-                    f"https://{R2_CFG.public_link_id}.r2.cloudflarestorage.com/{key}"
-                )
+        # Also store submission metadata in R2 as JSON
+        try:
+            metadata = submission.dict()
+            metadata["video_url"] = (
+                f"https://{R2_CFG.public_link_id}.r2.cloudflarestorage.com/{key}"
+            )
 
-                metadata_key = f"metadata/{submission.id}.json"
-                metadata_bytes = json.dumps(metadata, indent=2).encode("utf-8")
-                metadata_file = io.BytesIO(metadata_bytes)
+            metadata_key = f"metadata/{submission.id}.json"
+            metadata_bytes = json.dumps(metadata, indent=2).encode("utf-8")
+            metadata_file = io.BytesIO(metadata_bytes)
 
-                s3 = _r2_client()
-                s3.upload_fileobj(metadata_file, R2_CFG.bucket_name, metadata_key)
-                metadata_file.close()
+            s3 = _r2_client()
+            s3.upload_fileobj(metadata_file, R2_CFG.bucket_name, metadata_key)
+            metadata_file.close()
 
-            except Exception as e:
-                logger.exception("Failed to store metadata in R2 for %s", submission.id)
-        else:
-            # R2 not configured, just mark as completed
-            submission.status = SubmissionStatus.completed
-            submission.file_name = key
+        except Exception as e:
+            logger.exception("Failed to store metadata in R2 for %s", submission.id)
 
     except Exception as e:
         logger.exception("Upload failed for %s", submission.id)
@@ -379,10 +469,7 @@ def background_upload(submission: SubmissionModel, file_like, key: str):
     response_model=SubmissionModel,
     tags=["Submissions"],
 )
-def get_submission(submission_id: str):
-    if not R2_CFG:
-        raise HTTPException(status_code=503, detail="R2 not configured")
-
+async def get_submission(submission_id: str, storage_ready: None = Depends(require_storage_configured)):
     s3 = _r2_client()
     try:
         metadata_key = f"metadata/{submission_id}.json"
@@ -401,10 +488,7 @@ def get_submission(submission_id: str):
     status_code=204,
     tags=["Submissions"],
 )
-def delete_submission(submission_id: str):
-    if not R2_CFG:
-        raise HTTPException(status_code=503, detail="R2 not configured")
-
+async def delete_submission(submission_id: str, storage_ready: None = Depends(require_storage_configured)):
     s3 = _r2_client()
 
     # Delete metadata
@@ -429,10 +513,8 @@ def delete_submission(submission_id: str):
     "/submissions/{submission_id}/download",
     tags=["Submissions"],
 )
-def download_submission(submission_id: str):
-    if R2_CFG is None:
-        raise HTTPException(status_code=503, detail="R2 not configured")
-    sub = get_submission(submission_id)
+async def download_submission(submission_id: str, storage_ready: None = Depends(require_storage_configured)):
+    sub = await get_submission(submission_id)
     if not sub.file_name:
         raise HTTPException(
             status_code=404, detail="File not available for this submission"
@@ -461,16 +543,18 @@ async def submit(
     video_file: UploadFile = File(...),
     hotkey: str = Form(...),
     social_post_url: str = Form(...),
+    storage_ready: None = Depends(require_storage_configured),
 ):
+    """
+    Upload a video submission.
+    
+    Requires both Gist and R2 storage to be configured.
+    """
     sub_id = uuid4().hex
 
-    # Determine file key and initial status based on R2 config
-    if R2_CFG:
-        key = f"videos/{sub_id}_{video_file.filename}"
-        status = SubmissionStatus.processing
-    else:
-        key = f"videos/{sub_id}_{video_file.filename}"  # Still create a key for consistency
-        status = SubmissionStatus.completed
+    # Determine file key and initial status
+    key = f"videos/{sub_id}_{video_file.filename}"
+    status = SubmissionStatus.processing
 
     submission = SubmissionModel(
         id=sub_id,
@@ -485,18 +569,17 @@ async def submit(
 
     save_submission_to_disk(submission)
 
-    if R2_CFG:
-        file_bytes = await video_file.read()
-        file_like = io.BytesIO(file_bytes)
-        background_tasks.add_task(background_upload, submission, file_like, key)
+    file_bytes = await video_file.read()
+    file_like = io.BytesIO(file_bytes)
+    background_tasks.add_task(background_upload, submission, file_like, key)
 
     return submission
 
 
 # ───── Leaderboard Endpoint ─────────────────────────────────────────────
 @app.get("/leaderboard")
-def get_leaderboard():
-    submissions = list_submissions()
+async def get_leaderboard(storage_ready: None = Depends(require_storage_configured)):
+    submissions = await list_submissions()
     # Group submissions by hotkey (extracted from content_id or stored separately)
     creator_submissions = {}
 
@@ -548,8 +631,8 @@ def get_leaderboard():
 
 # ───── Creative Brief Endpoint ─────────────────────────────────────────────
 @app.get("/creative-brief")
-def get_creative_brief():
-    submissions = list_submissions()
+async def get_creative_brief(storage_ready: None = Depends(require_storage_configured)):
+    submissions = await list_submissions()
     # Return all completed submissions as "featured" for demo
     featured = [s for s in submissions if s.status == "completed"]
     featured.sort(key=lambda s: s.created_at, reverse=True)
@@ -571,8 +654,8 @@ def get_creative_brief():
 
 # ───── Creator Profile Endpoint ─────────────────────────────────────────────
 @app.get("/creators/{hotkey}")
-def get_creator_profile(hotkey: str = FastAPIPath(...)):
-    submissions = list_submissions()
+async def get_creator_profile(hotkey: str = FastAPIPath(...), storage_ready: None = Depends(require_storage_configured)):
+    submissions = await list_submissions()
     # Find all submissions for this hotkey
     creator_submissions = []
 
