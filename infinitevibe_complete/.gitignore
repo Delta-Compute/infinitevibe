@@ -12,4 +12,4 @@ wheels/
 .env
 wandb/
 venv/
-ecosystem.config.js
+ecosystem.config.js.env.backup
