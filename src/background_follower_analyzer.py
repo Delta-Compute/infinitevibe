@@ -28,7 +28,7 @@ class ApifyInstagramFetcher:
     
     def __init__(self):
         self.api_key = os.getenv('APIFY_API_KEY')
-        self.actor_id = os.getenv('APIFY_ACTOR_ID', 'apify/instagram-profile-scraper')
+        self.actor_id = os.getenv('APIFY_ACTOR_ID', 'shu8hvrXbJbY3Eb9W')  # instagram-scraper
         self.base_url = 'https://api.apify.com/v2'
         
         if not self.api_key:
@@ -92,44 +92,16 @@ class ApifyInstagramFetcher:
             logger.debug(f"Starting Apify actor with input: {run_input}")
             
             run_response = await client.post(
-                f"{self.base_url}/acts/{self.actor_id}/runs",
+                f"{self.base_url}/acts/{self.actor_id}/run-sync-get-dataset-items",
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 json=run_input,
-                timeout=30.0
+                timeout=180.0
             )
             
-            if run_response.status_code != 201:
-                raise Exception(f"Failed to start Apify run: {run_response.text}")
+            if run_response.status_code not in [200, 201]:
+                raise Exception(f"Failed to run Apify actor: {run_response.text}")
                 
-            run_id = run_response.json()['data']['id']
-            logger.debug(f"Apify run started with ID: {run_id}")
-            
-            # Wait for completion (max 3 minutes)
-            for i in range(36):  # 36 * 5 seconds = 3 minutes
-                await asyncio.sleep(5)
-                
-                status_response = await client.get(
-                    f"{self.base_url}/actor-runs/{run_id}",
-                    headers={"Authorization": f"Bearer {self.api_key}"}
-                )
-                
-                status = status_response.json()['data']['status']
-                if status == 'SUCCEEDED':
-                    logger.debug(f"Apify run completed successfully")
-                    break
-                elif status in ['FAILED', 'ABORTED']:
-                    raise Exception(f"Apify run failed with status: {status}")
-                    
-                if i % 6 == 0:  # Log every 30 seconds
-                    logger.debug(f"Waiting for Apify run to complete... ({i*5}s)")
-            
-            # Get results
-            results_response = await client.get(
-                f"{self.base_url}/actor-runs/{run_id}/dataset/items",
-                headers={"Authorization": f"Bearer {self.api_key}"}
-            )
-            
-            return results_response.json()
+            return run_response.json()
 
 
 class BackgroundFollowerAnalyzer:
@@ -150,24 +122,60 @@ class BackgroundFollowerAnalyzer:
     async def initialize(self):
         """Initialize database connection"""
         self.db_client = AsyncIOMotorClient(self.mongodb_uri)
-        self.db = self.db_client.infinitevibe
+        self.db = self.db_client.tensorflix
         logger.info("✅ Database connection initialized")
         
     async def get_top_miners(self, limit: int = 5) -> List[Dict]:
         """Get top 5 miners by engagement rate from MongoDB"""
         try:
-            # Get the latest engagement rates
-            miners = await self.db.engagement_rates.find(
+            # Get miners with submissions (they have Instagram content)
+            miners = await self.db['submissions-0.0.2'].find(
                 {},
-                {"hotkey": 1, "engagement_rate": 1, "instagram_handle": 1}
-            ).sort("engagement_rate", -1).limit(limit).to_list(length=limit)
+                {"hotkey": 1, "submissions": 1}
+            ).limit(limit).to_list(length=limit)
             
-            logger.info(f"📊 Found {len(miners)} top miners to analyze")
-            return miners
+            # Extract miners with Instagram content
+            instagram_miners = []
+            for miner in miners:
+                for submission in miner.get('submissions', []):
+                    if 'instagram' in submission.get('platform', '').lower():
+                        instagram_miners.append({
+                            'hotkey': miner['hotkey'],
+                            'instagram_handle': self._extract_instagram_handle_from_submission(submission)
+                        })
+                        break
+            
+            logger.info(f"📊 Found {len(instagram_miners)} miners with Instagram content to analyze")
+            return instagram_miners
             
         except Exception as e:
             logger.error(f"Failed to get top miners: {e}")
             return []
+    
+    def _extract_instagram_handle_from_submission(self, submission: Dict) -> str:
+        """Extract Instagram handle from submission data"""
+        import re
+        
+        # Try to get handle from content_id or url
+        content_id = submission.get('content_id', '')
+        
+        # Extract from Instagram URL patterns
+        url_patterns = [
+            r'instagram\.com/([^/]+)/',
+            r'instagram\.com/p/[^/]+/.*@([^/\s]+)',
+            r'instagram\.com/reel/[^/]+/.*@([^/\s]+)'
+        ]
+        
+        for pattern in url_patterns:
+            match = re.search(pattern, content_id)
+            if match:
+                return match.group(1)
+        
+        # If no handle found, use the content_id as is (might be just the handle)
+        if content_id and not content_id.startswith('http'):
+            return content_id.replace('@', '')
+        
+        return None
     
     async def is_analysis_recent(self, instagram_handle: str) -> bool:
         """Check if we've analyzed this account recently"""
