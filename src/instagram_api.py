@@ -177,9 +177,9 @@ class InstagramFollowerFetcher:
         """Generate obvious bot username patterns"""
         patterns = [
             f"user{random.randint(100000, 999999)}",
-            f"{"".join(random.choices("0123456789", k=10))}",
+            f"{''.join(random.choices('0123456789', k=10))}",
             f"bot_{random.randint(1000, 9999)}_account",
-            f"{"".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=12))}"
+            f"{''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=12))}"
         ]
         return random.choice(patterns)
     

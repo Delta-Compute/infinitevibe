@@ -58,6 +58,14 @@ class StatisticalAnalyzer(BaseAnalyzer):
         if posts_distribution < 0.3:
             flags.append("unusual_posting_patterns")
         
+        # Add specific post distribution flags
+        if 'post_details' in locals():
+            post_details = self._get_posts_distribution_details(followers_data)
+            if post_details['clustering_ratio'] > 0.7:
+                flags.append("post_count_clustering")
+            if post_details['cv'] < 0.1:
+                flags.append("low_post_variation")
+        
         # Calculate confidence based on sample size and data quality
         confidence = min(1.0, len(followers_data) / 100) * 0.8
         
@@ -203,11 +211,46 @@ class StatisticalAnalyzer(BaseAnalyzer):
         zero_posts = sum(1 for count in post_counts if count == 0)
         zero_ratio = zero_posts / len(post_counts)
         
-        if zero_ratio > 0.8:  # 80% have no posts
-            return 0.1
-        elif zero_ratio > 0.6:  # 60% have no posts
-            return 0.3
-        elif zero_ratio > 0.4:  # 40% have no posts
-            return 0.6
+        # Check for suspicious clustering (all having same post count)
+        post_counter = Counter(post_counts)
+        most_common_count, most_common_freq = post_counter.most_common(1)[0]
+        clustering_ratio = most_common_freq / len(post_counts)
+        
+        # Calculate standard deviation to measure spread
+        if len(post_counts) > 1:
+            std_dev = statistics.stdev(post_counts)
+            mean_posts = statistics.mean(post_counts)
+            # Coefficient of variation (normalized std dev)
+            cv = std_dev / (mean_posts + 1)  # +1 to avoid division by zero
         else:
-            return 1.0
+            cv = 0.0
+        
+        # Score based on multiple factors
+        zero_penalty = 0.0
+        if zero_ratio > 0.8:  # 80% have no posts
+            zero_penalty = 0.9
+        elif zero_ratio > 0.6:  # 60% have no posts
+            zero_penalty = 0.7
+        elif zero_ratio > 0.4:  # 40% have no posts
+            zero_penalty = 0.4
+        
+        # Clustering penalty (e.g., all have exactly 5 posts)
+        clustering_penalty = 0.0
+        if clustering_ratio > 0.9 and len(post_counter) < 3:  # 90% have same count
+            clustering_penalty = 0.8
+        elif clustering_ratio > 0.7 and len(post_counter) < 5:  # 70% have same count
+            clustering_penalty = 0.5
+        elif clustering_ratio > 0.5 and len(post_counter) < 10:  # 50% have same count
+            clustering_penalty = 0.2
+        
+        # Low variation penalty (all posts counts very similar)
+        variation_penalty = 0.0
+        if cv < 0.1:  # Very low variation
+            variation_penalty = 0.6
+        elif cv < 0.3:  # Low variation
+            variation_penalty = 0.3
+        
+        # Combine penalties (use the highest one)
+        total_penalty = max(zero_penalty, clustering_penalty, variation_penalty)
+        
+        return 1.0 - total_penalty
